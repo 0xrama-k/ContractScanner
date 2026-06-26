@@ -27,6 +27,14 @@ pub struct Config {
     /// DEV ONLY: skip the on-chain gate and start scans immediately. Must never be
     /// enabled in production (guarded at startup below).
     pub payment_bypass: bool,
+
+    // --- Slither sandbox (Section 15) ---
+    /// Docker executable (full path if not on PATH for the server process).
+    pub docker_bin: String,
+    /// Slither sandbox image tag.
+    pub slither_image: String,
+    /// Wall-clock timeout for a single Slither run, in seconds.
+    pub slither_timeout_secs: u64,
 }
 
 impl Config {
@@ -44,6 +52,10 @@ impl Config {
                 .filter(|s| !s.is_empty()),
             payment_window_secs: parse_int("PAYMENT_WINDOW_SECS", 1800)?,
             payment_bypass,
+            docker_bin: env::var("DOCKER_BIN").unwrap_or_else(|_| "docker".to_string()),
+            slither_image: env::var("SLITHER_IMAGE")
+                .unwrap_or_else(|_| "contract-scanner-slither:latest".to_string()),
+            slither_timeout_secs: parse_int("SLITHER_TIMEOUT_SECS", 60)?.max(1) as u64,
         };
 
         Ok(config)

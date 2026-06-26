@@ -1,6 +1,7 @@
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
 use axum::Json;
+use serde_json::Value;
 
 use crate::app::AppState;
 use crate::error::AppError;
@@ -23,4 +24,28 @@ pub async fn get_scan(
 ) -> Result<Json<ScanStatusResponse>, AppError> {
     let resp = scan_service::get_status(&state, &scan_id).await?;
     Ok(Json(resp))
+}
+
+/// `GET /api/scans/{scan_id}/report` — the full UI/JSON report.
+pub async fn get_report(
+    State(state): State<AppState>,
+    Path(scan_id): Path<String>,
+) -> Result<Json<Value>, AppError> {
+    Ok(Json(scan_service::get_report(&state, &scan_id).await?))
+}
+
+/// `GET /api/scans/{scan_id}/export/json` — machine-readable report (same shape).
+pub async fn export_json(
+    State(state): State<AppState>,
+    Path(scan_id): Path<String>,
+) -> Result<Json<Value>, AppError> {
+    Ok(Json(scan_service::get_report(&state, &scan_id).await?))
+}
+
+/// `GET /api/scans/{scan_id}/export/markdown` — `{ filename, content }`.
+pub async fn export_markdown(
+    State(state): State<AppState>,
+    Path(scan_id): Path<String>,
+) -> Result<Json<Value>, AppError> {
+    Ok(Json(scan_service::export_markdown(&state, &scan_id).await?))
 }

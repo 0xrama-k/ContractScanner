@@ -10,30 +10,42 @@ use tower_http::trace::TraceLayer;
 
 use crate::api;
 use crate::infra::config::Config;
+use crate::infra::slither_runner::SlitherRunner;
 
 /// Shared application state handed to every handler.
 ///
-/// Holds process-wide singletons (config + DB pool now; watcher, limiter later).
+/// Holds process-wide singletons (config, DB pool, Slither runner).
 #[derive(Clone)]
 pub struct AppState {
-    // Read by handlers starting in the next milestone (scan endpoints).
-    #[allow(dead_code)]
     pub config: Arc<Config>,
-    #[allow(dead_code)]
     pub db: PgPool,
+    pub slither: Arc<SlitherRunner>,
 }
 
 /// Build the full application router with shared state and middleware.
-pub fn build_router(config: Config, db: PgPool) -> Router {
+pub fn build_router(config: Config, db: PgPool, slither: Arc<SlitherRunner>) -> Router {
     let state = AppState {
         config: Arc::new(config),
         db,
+        slither,
     };
 
     Router::new()
         .route("/health", get(api::health::health))
         .route("/api/scans", post(api::scan_routes::create_scan))
         .route("/api/scans/:scan_id", get(api::scan_routes::get_scan))
+        .route(
+            "/api/scans/:scan_id/report",
+            get(api::scan_routes::get_report),
+        )
+        .route(
+            "/api/scans/:scan_id/export/json",
+            get(api::scan_routes::export_json),
+        )
+        .route(
+            "/api/scans/:scan_id/export/markdown",
+            get(api::scan_routes::export_markdown),
+        )
         .with_state(state)
         .layer(TraceLayer::new_for_http())
         // V1 frontend is a separate origin (Section "missing points": CORS).

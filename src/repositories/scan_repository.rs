@@ -43,6 +43,7 @@ pub async fn create_scan(pool: &PgPool, new: NewScan<'_>) -> Result<CreatedScan,
 
 pub struct ScanStatusRow {
     pub status: String,
+    pub error_code: Option<String>,
     pub error_message: Option<String>,
     pub price_wei: String,
     pub created_at: DateTime<Utc>,
@@ -51,7 +52,8 @@ pub struct ScanStatusRow {
 
 pub async fn get_status(pool: &PgPool, id: Uuid) -> Result<Option<ScanStatusRow>, sqlx::Error> {
     let row = sqlx::query(
-        "SELECT status, error_message, price_amount::text AS price_wei, created_at, updated_at
+        "SELECT status, error_code, error_message, price_amount::text AS price_wei,
+                created_at, updated_at
          FROM scans WHERE id = $1",
     )
     .bind(id)
@@ -60,11 +62,21 @@ pub async fn get_status(pool: &PgPool, id: Uuid) -> Result<Option<ScanStatusRow>
 
     Ok(row.map(|r| ScanStatusRow {
         status: r.get("status"),
+        error_code: r.get("error_code"),
         error_message: r.get("error_message"),
         price_wei: r.get("price_wei"),
         created_at: r.get("created_at"),
         updated_at: r.get("updated_at"),
     }))
+}
+
+pub async fn set_overall_risk(pool: &PgPool, id: Uuid, risk: &str) -> Result<(), sqlx::Error> {
+    sqlx::query("UPDATE scans SET overall_risk = $2 WHERE id = $1")
+        .bind(id)
+        .bind(risk)
+        .execute(pool)
+        .await?;
+    Ok(())
 }
 
 pub async fn set_status(pool: &PgPool, id: Uuid, status: ScanStatus) -> Result<(), sqlx::Error> {
@@ -91,12 +103,14 @@ pub async fn finish(
     pool: &PgPool,
     id: Uuid,
     status: ScanStatus,
+    error_code: Option<&str>,
     error_message: Option<&str>,
 ) -> Result<(), sqlx::Error> {
     sqlx::query(
         "UPDATE scans
          SET status = $2,
-             error_message = $3,
+             error_code = $3,
+             error_message = $4,
              finished_at = now(),
              duration_ms = CASE
                  WHEN started_at IS NOT NULL
@@ -107,6 +121,7 @@ pub async fn finish(
     )
     .bind(id)
     .bind(status.as_str())
+    .bind(error_code)
     .bind(error_message)
     .execute(pool)
     .await?;
