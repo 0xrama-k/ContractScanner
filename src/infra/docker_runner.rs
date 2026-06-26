@@ -70,6 +70,9 @@ impl DockerRunner {
         cmd.args([
             "run",
             "--rm",
+            // Label so the reaper can identify/clean orphaned sandbox containers.
+            "--label",
+            "contract-scanner-sandbox=1",
             "--network",
             "none",
             "--memory",

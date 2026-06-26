@@ -69,6 +69,12 @@ async fn main() {
         config.max_concurrent_scans,
     ));
 
+    // Reap orphaned scan folders older than ~2x the Slither timeout.
+    infra::reaper::spawn(
+        std::time::Duration::from_secs((config.slither_timeout_secs * 2).max(120)),
+        std::time::Duration::from_secs(120),
+    );
+
     let router = app::build_router(config, db, slither, limiter);
 
     let listener = match TcpListener::bind(bind_addr).await {
