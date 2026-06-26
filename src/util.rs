@@ -15,3 +15,8 @@ pub fn uuid_to_bytes32(id: Uuid) -> String {
     buf[16..].copy_from_slice(id.as_bytes());
     format!("0x{}", hex::encode(buf))
 }
+
+/// Salted hash of a client IP. Never store the raw IP (Section 12/15).
+pub fn ip_hash(salt: &str, ip: &str) -> String {
+    sha256_hex(&format!("{salt}|{ip}"))
+}

@@ -64,7 +64,12 @@ async fn main() {
         },
     ));
 
-    let router = app::build_router(config, db, slither);
+    let limiter = std::sync::Arc::new(infra::rate_limit::Limiter::new(
+        config.rate_limit_per_hour,
+        config.max_concurrent_scans,
+    ));
+
+    let router = app::build_router(config, db, slither, limiter);
 
     let listener = match TcpListener::bind(bind_addr).await {
         Ok(l) => l,
@@ -76,9 +81,12 @@ async fn main() {
 
     tracing::info!(%bind_addr, "contract-scanner listening");
 
-    if let Err(err) = axum::serve(listener, router)
-        .with_graceful_shutdown(shutdown_signal())
-        .await
+    if let Err(err) = axum::serve(
+        listener,
+        router.into_make_service_with_connect_info::<SocketAddr>(),
+    )
+    .with_graceful_shutdown(shutdown_signal())
+    .await
     {
         tracing::error!(%err, "server error");
         std::process::exit(1);

@@ -70,6 +70,43 @@ pub async fn get_status(pool: &PgPool, id: Uuid) -> Result<Option<ScanStatusRow>
     }))
 }
 
+pub struct RecentScan {
+    pub id: Uuid,
+    pub status: String,
+    pub price_wei: String,
+    pub created_at: DateTime<Utc>,
+}
+
+/// Idempotency lookup: most recent scan with the same ip_hash + source_hash
+/// created within the last `window_secs` (Section 15). Used to dedupe resubmits.
+pub async fn find_recent_by_hash(
+    pool: &PgPool,
+    ip_hash: &str,
+    source_hash: &str,
+    window_secs: i32,
+) -> Result<Option<RecentScan>, sqlx::Error> {
+    let row = sqlx::query(
+        "SELECT id, status, price_amount::text AS price_wei, created_at
+         FROM scans
+         WHERE ip_hash = $1 AND source_hash = $2
+           AND created_at > now() - ($3 * interval '1 second')
+         ORDER BY created_at DESC
+         LIMIT 1",
+    )
+    .bind(ip_hash)
+    .bind(source_hash)
+    .bind(window_secs)
+    .fetch_optional(pool)
+    .await?;
+
+    Ok(row.map(|r| RecentScan {
+        id: r.get("id"),
+        status: r.get("status"),
+        price_wei: r.get("price_wei"),
+        created_at: r.get("created_at"),
+    }))
+}
+
 pub async fn set_overall_risk(pool: &PgPool, id: Uuid, risk: &str) -> Result<(), sqlx::Error> {
     sqlx::query("UPDATE scans SET overall_risk = $2 WHERE id = $1")
         .bind(id)

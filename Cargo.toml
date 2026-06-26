@@ -6,7 +6,7 @@ description = "Web-based static security scanner for Solidity/EVM smart contract
 
 [dependencies]
 axum = "0.7"
-tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "signal", "process", "time"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "signal", "process", "time", "sync"] }
 tower = "0.5"
 tower-http = { version = "0.6", features = ["trace", "cors"] }
 serde = { version = "1", features = ["derive"] }

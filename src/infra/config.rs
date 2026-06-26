@@ -35,6 +35,16 @@ pub struct Config {
     pub slither_image: String,
     /// Wall-clock timeout for a single Slither run, in seconds.
     pub slither_timeout_secs: u64,
+
+    // --- Abuse prevention (Section 15) ---
+    /// Max scans accepted per client IP per hour.
+    pub rate_limit_per_hour: u32,
+    /// Max sandbox scans allowed to run simultaneously (global).
+    pub max_concurrent_scans: usize,
+    /// Window for deduping identical resubmissions (ip_hash + source_hash).
+    pub idempotency_window_secs: i32,
+    /// Salt for hashing client IPs (never store raw IP). Set a real value in prod.
+    pub ip_hash_salt: String,
 }
 
 impl Config {
@@ -56,6 +66,11 @@ impl Config {
             slither_image: env::var("SLITHER_IMAGE")
                 .unwrap_or_else(|_| "contract-scanner-slither:latest".to_string()),
             slither_timeout_secs: parse_int("SLITHER_TIMEOUT_SECS", 60)?.max(1) as u64,
+            rate_limit_per_hour: parse_int("RATE_LIMIT_PER_HOUR", 5)?.max(1) as u32,
+            max_concurrent_scans: parse_int("MAX_CONCURRENT_SCANS", 4)?.max(1) as usize,
+            idempotency_window_secs: parse_int("IDEMPOTENCY_WINDOW_SECS", 60)?.max(0) as i32,
+            ip_hash_salt: env::var("IP_HASH_SALT")
+                .unwrap_or_else(|_| "dev-salt-change-me".to_string()),
         };
 
         Ok(config)

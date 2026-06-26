@@ -21,11 +21,47 @@ use crate::util;
 /// payment block. Under `PAYMENT_BYPASS`, also kick off the real pipeline.
 pub async fn create_scan(
     state: &AppState,
+    ip_hash: &str,
     req: CreateScanRequest,
 ) -> Result<CreateScanResponse, AppError> {
     input_processor::validate(&req)?;
 
     let source_hash = util::sha256_hex(&req.source_code);
+
+    // Idempotency: a recent identical submission returns the existing scan and
+    // does NOT consume rate-limit quota or start a second scan (Section 15).
+    if state.config.idempotency_window_secs > 0 {
+        if let Some(existing) = scan_repository::find_recent_by_hash(
+            &state.db,
+            ip_hash,
+            &source_hash,
+            state.config.idempotency_window_secs,
+        )
+        .await
+        .map_err(|e| {
+            tracing::error!(error = %e, "idempotency lookup failed");
+            AppError::internal("Failed to create scan.")
+        })? {
+            let payment =
+                build_payment_block(state, existing.id, existing.created_at, &existing.price_wei);
+            return Ok(CreateScanResponse {
+                scan_id: existing.id.to_string(),
+                status: existing.status,
+                message: "Duplicate submission; returning the existing scan.".to_string(),
+                payment,
+            });
+        }
+    }
+
+    // Per-IP rate limit.
+    if let Err(rl) = state.limiter.check_and_record(ip_hash) {
+        return Err(AppError::new(
+            ErrorCode::RateLimited,
+            "Too many scans from this client. Please try again later.",
+        )
+        .with_details(serde_json::json!({ "retry_after_secs": rl.retry_after_secs })));
+    }
+
     let filename_for_task = req
         .filename
         .clone()
@@ -36,7 +72,7 @@ pub async fn create_scan(
         input_type: req.input_type.as_str(),
         filename: req.filename.as_deref(),
         source_hash: &source_hash,
-        ip_hash: None, // populated once rate limiting lands (Section 15)
+        ip_hash: Some(ip_hash),
         price_wei: &state.config.scan_price_wei,
     };
 
@@ -47,7 +83,8 @@ pub async fn create_scan(
             AppError::internal("Failed to create scan.")
         })?;
 
-    let payment = build_payment_block(state, created.id, created.created_at, &state.config.scan_price_wei);
+    let payment =
+        build_payment_block(state, created.id, created.created_at, &state.config.scan_price_wei);
 
     let bypass = state.config.payment_bypass;
     if bypass {
@@ -55,9 +92,12 @@ pub async fn create_scan(
         // The source is held in the task; it is never persisted (Section 15).
         let db = state.db.clone();
         let slither = state.slither.clone();
+        let sem = state.limiter.semaphore();
         let id = created.id;
         let source = req.source_code;
-        tokio::spawn(async move { run_pipeline(db, slither, id, filename_for_task, source).await });
+        tokio::spawn(
+            async move { run_pipeline(db, slither, sem, id, filename_for_task, source).await },
+        );
     }
 
     Ok(CreateScanResponse {
@@ -227,6 +267,7 @@ fn parse_status(s: &str) -> ScanStatus {
 async fn run_pipeline(
     db: PgPool,
     slither: Arc<SlitherRunner>,
+    sem: Arc<tokio::sync::Semaphore>,
     scan_id: Uuid,
     filename: String,
     source: String,
@@ -235,6 +276,18 @@ async fn run_pipeline(
     if step_failed(scan_repository::set_status(&db, scan_id, ScanStatus::Queued).await, scan_id, "set queued") {
         return;
     }
+
+    // Bound simultaneous sandbox runs (Section 15). Queues briefly if at capacity;
+    // the permit is held for the duration of the scan.
+    let _permit = match sem.acquire_owned().await {
+        Ok(p) => p,
+        Err(_) => {
+            tracing::error!(%scan_id, "concurrency semaphore closed");
+            fail(&db, scan_id, ErrorCode::InternalError, "Internal error.").await;
+            return;
+        }
+    };
+
     if step_failed(scan_repository::begin_running(&db, scan_id).await, scan_id, "begin running") {
         return;
     }
