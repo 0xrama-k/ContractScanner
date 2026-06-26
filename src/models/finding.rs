@@ -96,3 +96,45 @@ pub struct ScoreBreakdown {
     pub final_score: f64,
     pub final_severity: Severity,
 }
+
+/// Source location of a finding (Section 6).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Location {
+    pub file: Option<String>,
+    pub contract: Option<String>,
+    pub function: Option<String>,
+    pub line_start: Option<i32>,
+    pub line_end: Option<i32>,
+}
+
+/// The common finding model (Section 6). One normalized shape for all output.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Finding {
+    /// Per-scan display id, e.g. `FIND-001`.
+    pub id: String,
+    pub title: String,
+    pub category: String,
+    pub severity: Severity,
+    pub confidence: Confidence,
+    /// `Detected` for valid Slither findings in V1.
+    pub status: String,
+    pub sources: Vec<String>,
+    pub finding_fingerprint: String,
+    pub location: Location,
+
+    // Report text (filled by the LLM layer; empty after normalization).
+    pub summary: String,
+    pub technical_details: String,
+    pub exploit_scenario: String,
+    pub fix_suggestion: String,
+    pub false_positive_note: String,
+
+    pub evidence: Vec<String>,
+    /// Filled by the RiskScorer; `None` until the scoring step runs.
+    pub score: Option<ScoreBreakdown>,
+
+    /// Raw Slither detector name, retained for scoring and fingerprinting.
+    /// Not part of the public report shape.
+    #[serde(skip)]
+    pub detector: String,
+}
