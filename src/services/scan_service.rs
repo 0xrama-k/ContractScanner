@@ -5,9 +5,10 @@ use serde_json::Value;
 use sqlx::PgPool;
 use uuid::Uuid;
 
-use crate::analyzers::{input_processor, pipeline, report_generator};
+use crate::analyzers::{input_processor, llm_analyzer, pipeline, report_generator};
 use crate::app::AppState;
 use crate::error::{AppError, ErrorCode};
+use crate::infra::llm_client::LlmClient;
 use crate::infra::slither_runner::{SlitherError, SlitherRunner};
 use crate::models::dto::{
     CreateScanRequest, CreateScanResponse, PaymentBlock, ScanErrorDetail, ScanStatusResponse,
@@ -93,11 +94,13 @@ pub async fn create_scan(
         let db = state.db.clone();
         let slither = state.slither.clone();
         let sem = state.limiter.semaphore();
+        let llm = state.llm.clone();
+        let llm_char_limit = state.config.llm_source_char_limit;
         let id = created.id;
         let source = req.source_code;
-        tokio::spawn(
-            async move { run_pipeline(db, slither, sem, id, filename_for_task, source).await },
-        );
+        tokio::spawn(async move {
+            run_pipeline(db, slither, sem, llm, llm_char_limit, id, filename_for_task, source).await
+        });
     }
 
     Ok(CreateScanResponse {
@@ -264,10 +267,13 @@ fn parse_status(s: &str) -> ScanStatus {
 
 /// The live analyzer pipeline (replaces the earlier stub). Drives statuses,
 /// runs Slither in the sandbox, normalizes/scores, and persists findings + report.
+#[allow(clippy::too_many_arguments)]
 async fn run_pipeline(
     db: PgPool,
     slither: Arc<SlitherRunner>,
     sem: Arc<tokio::sync::Semaphore>,
+    llm: Option<Arc<LlmClient>>,
+    llm_char_limit: usize,
     scan_id: Uuid,
     filename: String,
     source: String,
@@ -299,7 +305,7 @@ async fn run_pipeline(
         return;
     }
 
-    let outcome = match pipeline::analyze(slither.as_ref(), scan_id, &filename, &source).await {
+    let mut outcome = match pipeline::analyze(slither.as_ref(), scan_id, &filename, &source).await {
         Ok(o) => o,
         Err(e) => {
             let (code, msg) = map_slither_error(&e);
@@ -307,6 +313,21 @@ async fn run_pipeline(
             fail(&db, scan_id, code, &msg).await;
             return;
         }
+    };
+
+    // LLM enrichment (bounded reporting layer; never fails the scan).
+    let enrich = if let Some(client) = &llm {
+        let _ = scan_repository::set_status(&db, scan_id, ScanStatus::AnalyzingLlm).await;
+        llm_analyzer::enrich(
+            client,
+            llm_char_limit,
+            &source,
+            &outcome.metadata,
+            &mut outcome.findings,
+        )
+        .await
+    } else {
+        llm_analyzer::EnrichResult::default()
     };
 
     let _ = scan_repository::set_status(&db, scan_id, ScanStatus::Scoring).await;
@@ -317,7 +338,13 @@ async fn run_pipeline(
         return;
     }
 
-    let report = report_generator::generate(scan_id, &outcome);
+    let report = report_generator::generate(
+        scan_id,
+        &outcome,
+        &enrich.contract_summary,
+        &enrich.main_risk_areas,
+        &enrich.warnings,
+    );
     let json_str = serde_json::to_string(&report.json_report).unwrap_or_else(|_| "{}".to_string());
 
     if let Err(e) =

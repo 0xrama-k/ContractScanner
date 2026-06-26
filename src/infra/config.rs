@@ -45,6 +45,16 @@ pub struct Config {
     pub idempotency_window_secs: i32,
     /// Salt for hashing client IPs (never store raw IP). Set a real value in prod.
     pub ip_hash_salt: String,
+
+    // --- LLM explanation layer (Section 4) ---
+    /// API key; when absent the LLM layer is disabled (Slither-only report text).
+    pub llm_api_key: Option<String>,
+    /// OpenAI-compatible base URL (e.g. io.net IO Intelligence).
+    pub llm_base_url: String,
+    pub llm_model: String,
+    /// If source exceeds this many chars, send windowed excerpts, not full source.
+    pub llm_source_char_limit: usize,
+    pub llm_timeout_secs: u64,
 }
 
 impl Config {
@@ -71,6 +81,13 @@ impl Config {
             idempotency_window_secs: parse_int("IDEMPOTENCY_WINDOW_SECS", 60)?.max(0) as i32,
             ip_hash_salt: env::var("IP_HASH_SALT")
                 .unwrap_or_else(|_| "dev-salt-change-me".to_string()),
+            llm_api_key: env::var("LLM_API_KEY").ok().filter(|s| !s.is_empty()),
+            llm_base_url: env::var("LLM_BASE_URL")
+                .unwrap_or_else(|_| "https://api.intelligence.io.solutions/api/v1".to_string()),
+            llm_model: env::var("LLM_MODEL")
+                .unwrap_or_else(|_| "meta-llama/Llama-3.3-70B-Instruct".to_string()),
+            llm_source_char_limit: parse_int("LLM_SOURCE_CHAR_LIMIT", 45000)?.max(1000) as usize,
+            llm_timeout_secs: parse_int("LLM_TIMEOUT_SECS", 30)?.max(1) as u64,
         };
 
         Ok(config)

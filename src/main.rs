@@ -75,7 +75,29 @@ async fn main() {
         std::time::Duration::from_secs(120),
     );
 
-    let router = app::build_router(config, db, slither, limiter);
+    let llm = match &config.llm_api_key {
+        Some(key) => match infra::llm_client::LlmClient::new(
+            config.llm_base_url.clone(),
+            key.clone(),
+            config.llm_model.clone(),
+            std::time::Duration::from_secs(config.llm_timeout_secs),
+        ) {
+            Ok(c) => {
+                tracing::info!(model = %config.llm_model, "LLM explanation layer enabled");
+                Some(std::sync::Arc::new(c))
+            }
+            Err(err) => {
+                tracing::error!(%err, "failed to build LLM client; LLM disabled");
+                None
+            }
+        },
+        None => {
+            tracing::info!("no LLM_API_KEY set; reports will use Slither-only text");
+            None
+        }
+    };
+
+    let router = app::build_router(config, db, slither, limiter, llm);
 
     let listener = match TcpListener::bind(bind_addr).await {
         Ok(l) => l,

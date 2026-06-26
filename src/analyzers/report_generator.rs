@@ -4,6 +4,7 @@
 use serde_json::{json, Value};
 use uuid::Uuid;
 
+use crate::analyzers::llm_analyzer::RiskArea;
 use crate::analyzers::pipeline::AnalysisOutcome;
 use crate::models::finding::{Finding, Severity};
 
@@ -42,7 +43,13 @@ fn count(findings: &[Finding]) -> Counts {
     c
 }
 
-pub fn generate(scan_id: Uuid, outcome: &AnalysisOutcome) -> GeneratedReport {
+pub fn generate(
+    scan_id: Uuid,
+    outcome: &AnalysisOutcome,
+    contract_summary: &str,
+    main_risk_areas: &[RiskArea],
+    warnings: &[String],
+) -> GeneratedReport {
     let c = count(&outcome.findings);
     let overall = outcome.overall_risk.as_str();
 
@@ -58,13 +65,15 @@ pub fn generate(scan_id: Uuid, outcome: &AnalysisOutcome) -> GeneratedReport {
             "low": c.low,
             "informational": c.informational,
         },
+        "contract_summary": contract_summary,
         "contract_metadata": serde_json::to_value(&outcome.metadata).unwrap_or(Value::Null),
-        // Populated by the LLM layer (not built yet).
-        "main_risk_areas": [],
+        "main_risk_areas": serde_json::to_value(main_risk_areas).unwrap_or(Value::Array(vec![])),
         "findings": serde_json::to_value(&outcome.findings).unwrap_or(Value::Array(vec![])),
+        "warnings": warnings,
     });
 
-    let markdown_report = markdown(scan_id, outcome, &c, overall);
+    let markdown_report =
+        markdown(scan_id, outcome, &c, overall, contract_summary, main_risk_areas, warnings);
 
     GeneratedReport {
         json_report,
@@ -72,7 +81,16 @@ pub fn generate(scan_id: Uuid, outcome: &AnalysisOutcome) -> GeneratedReport {
     }
 }
 
-fn markdown(scan_id: Uuid, outcome: &AnalysisOutcome, c: &Counts, overall: &str) -> String {
+#[allow(clippy::too_many_arguments)]
+fn markdown(
+    scan_id: Uuid,
+    outcome: &AnalysisOutcome,
+    c: &Counts,
+    overall: &str,
+    contract_summary: &str,
+    main_risk_areas: &[RiskArea],
+    warnings: &[String],
+) -> String {
     let md = &outcome.metadata;
     let mut s = String::new();
     s.push_str("# Smart Contract Security Report\n\n");
@@ -89,6 +107,27 @@ fn markdown(scan_id: Uuid, outcome: &AnalysisOutcome, c: &Counts, overall: &str)
         md.pragma.as_deref().unwrap_or("_unknown_"),
         scan_id
     ));
+
+    if !contract_summary.trim().is_empty() {
+        s.push_str("## What This Contract Does\n");
+        s.push_str(&format!("{contract_summary}\n\n"));
+    }
+
+    if !main_risk_areas.is_empty() {
+        s.push_str("## Main Risk Areas\n");
+        for area in main_risk_areas {
+            s.push_str(&format!(
+                "- {} (based on {})\n",
+                area.area,
+                if area.based_on_finding_ids.is_empty() {
+                    "—".to_string()
+                } else {
+                    area.based_on_finding_ids.join(", ")
+                }
+            ));
+        }
+        s.push('\n');
+    }
 
     s.push_str("## Contract Metadata\n");
     s.push_str(&format!("- Contracts: {}\n", join_or_none(&md.contracts)));
@@ -151,6 +190,9 @@ fn markdown(scan_id: Uuid, outcome: &AnalysisOutcome, c: &Counts, overall: &str)
 
     s.push_str("## Notes\n");
     s.push_str("- This report is based on Slither static analysis. Detected findings are not guaranteed vulnerabilities; review confidence and false-positive notes.\n");
+    for w in warnings {
+        s.push_str(&format!("- {w}\n"));
+    }
     s
 }
 
