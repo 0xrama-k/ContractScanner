@@ -63,11 +63,6 @@ pub async fn create_scan(
         .with_details(serde_json::json!({ "retry_after_secs": rl.retry_after_secs })));
     }
 
-    let filename_for_task = req
-        .filename
-        .clone()
-        .unwrap_or_else(|| "Contract.sol".to_string());
-
     let new = NewScan {
         status: ScanStatus::AwaitingPayment,
         input_type: req.input_type.as_str(),
@@ -75,6 +70,7 @@ pub async fn create_scan(
         source_hash: &source_hash,
         ip_hash: Some(ip_hash),
         price_wei: &state.config.scan_price_wei,
+        pending_source: &req.source_code,
     };
 
     let created = scan_repository::create_scan(&state.db, new)
@@ -90,17 +86,7 @@ pub async fn create_scan(
     let bypass = state.config.payment_bypass;
     if bypass {
         // Dev only: start the real pipeline immediately, no on-chain payment.
-        // The source is held in the task; it is never persisted (Section 15).
-        let db = state.db.clone();
-        let slither = state.slither.clone();
-        let sem = state.limiter.semaphore();
-        let llm = state.llm.clone();
-        let llm_char_limit = state.config.llm_source_char_limit;
-        let id = created.id;
-        let source = req.source_code;
-        tokio::spawn(async move {
-            run_pipeline(db, slither, sem, llm, llm_char_limit, id, filename_for_task, source).await
-        });
+        spawn_pipeline(state, created.id);
     }
 
     Ok(CreateScanResponse {
@@ -267,7 +253,39 @@ fn parse_status(s: &str) -> ScanStatus {
 
 /// The live analyzer pipeline (replaces the earlier stub). Drives statuses,
 /// runs Slither in the sandbox, normalizes/scores, and persists findings + report.
-#[allow(clippy::too_many_arguments)]
+/// Spawn the analysis pipeline for a scan that is ready to run (bypass or paid).
+fn spawn_pipeline(state: &AppState, scan_id: Uuid) {
+    let db = state.db.clone();
+    let slither = state.slither.clone();
+    let sem = state.limiter.semaphore();
+    let llm = state.llm.clone();
+    let llm_char_limit = state.config.llm_source_char_limit;
+    tokio::spawn(async move { run_pipeline(db, slither, sem, llm, llm_char_limit, scan_id).await });
+}
+
+/// Called by the PaymentWatcher when a confirmed `ScanPaid` log is observed.
+/// Marks the scan paid + queued (idempotently via the WHERE clause) and starts
+/// analysis. Returns true only if this call performed the transition.
+pub async fn on_payment_observed(
+    state: &AppState,
+    scan_id: Uuid,
+    payer: &str,
+    tx_hash: &str,
+) -> bool {
+    match scan_repository::mark_paid(&state.db, scan_id, payer, tx_hash).await {
+        Ok(true) => {
+            tracing::info!(%scan_id, payer, "payment observed; starting analysis");
+            spawn_pipeline(state, scan_id);
+            true
+        }
+        Ok(false) => false, // unknown scan, or already past awaiting_payment
+        Err(e) => {
+            tracing::error!(error = %e, %scan_id, "mark_paid failed");
+            false
+        }
+    }
+}
+
 async fn run_pipeline(
     db: PgPool,
     slither: Arc<SlitherRunner>,
@@ -275,10 +293,8 @@ async fn run_pipeline(
     llm: Option<Arc<LlmClient>>,
     llm_char_limit: usize,
     scan_id: Uuid,
-    filename: String,
-    source: String,
 ) {
-    // awaiting_payment -> queued -> running -> analyzing_slither
+    // -> queued -> running -> analyzing_slither
     if step_failed(scan_repository::set_status(&db, scan_id, ScanStatus::Queued).await, scan_id, "set queued") {
         return;
     }
@@ -290,6 +306,27 @@ async fn run_pipeline(
         Err(_) => {
             tracing::error!(%scan_id, "concurrency semaphore closed");
             fail(&db, scan_id, ErrorCode::InternalError, "Internal error.").await;
+            return;
+        }
+    };
+
+    // Load the transiently-stored source (cleared when analysis completes).
+    let (filename, source) = match scan_repository::load_pending_source(&db, scan_id).await {
+        Ok(Some(p)) => match p.source {
+            Some(s) => (p.filename.unwrap_or_else(|| "Contract.sol".to_string()), s),
+            None => {
+                tracing::error!(%scan_id, "pending source missing at analysis start");
+                fail(&db, scan_id, ErrorCode::InternalError, "Source unavailable for analysis.").await;
+                return;
+            }
+        },
+        Ok(None) => {
+            tracing::error!(%scan_id, "scan not found at analysis start");
+            return;
+        }
+        Err(e) => {
+            tracing::error!(error = %e, %scan_id, "failed to load pending source");
+            fail(&db, scan_id, ErrorCode::InternalError, "Failed to load scan source.").await;
             return;
         }
     };
@@ -356,6 +393,7 @@ async fn run_pipeline(
     }
 
     let _ = scan_repository::set_overall_risk(&db, scan_id, outcome.overall_risk.as_str()).await;
+    let _ = scan_repository::clear_pending_source(&db, scan_id).await;
 
     if let Err(e) =
         scan_repository::finish(&db, scan_id, ScanStatus::ReportReady, None, None).await
@@ -377,6 +415,7 @@ fn step_failed(result: Result<(), sqlx::Error>, scan_id: Uuid, step: &str) -> bo
 }
 
 async fn fail(db: &PgPool, scan_id: Uuid, code: ErrorCode, msg: &str) {
+    let _ = scan_repository::clear_pending_source(db, scan_id).await;
     if let Err(e) =
         scan_repository::finish(db, scan_id, ScanStatus::Failed, Some(code.as_str()), Some(msg)).await
     {

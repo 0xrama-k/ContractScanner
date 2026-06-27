@@ -28,21 +28,7 @@ pub struct AppState {
 }
 
 /// Build the full application router with shared state and middleware.
-pub fn build_router(
-    config: Config,
-    db: PgPool,
-    slither: Arc<SlitherRunner>,
-    limiter: Arc<Limiter>,
-    llm: Option<Arc<LlmClient>>,
-) -> Router {
-    let state = AppState {
-        config: Arc::new(config),
-        db,
-        slither,
-        limiter,
-        llm,
-    };
-
+pub fn build_router(state: AppState) -> Router {
     Router::new()
         .route("/health", get(api::health::health))
         .route("/api/scans", post(api::scan_routes::create_scan))

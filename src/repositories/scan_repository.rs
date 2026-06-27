@@ -13,6 +13,8 @@ pub struct NewScan<'a> {
     pub ip_hash: Option<&'a str>,
     /// Required price in wei, as a decimal string (cast to NUMERIC in SQL).
     pub price_wei: &'a str,
+    /// Source held transiently until analysis runs (cleared afterwards).
+    pub pending_source: &'a str,
 }
 
 pub struct CreatedScan {
@@ -22,8 +24,9 @@ pub struct CreatedScan {
 
 pub async fn create_scan(pool: &PgPool, new: NewScan<'_>) -> Result<CreatedScan, sqlx::Error> {
     let row = sqlx::query(
-        "INSERT INTO scans (status, input_type, filename, source_hash, ip_hash, price_amount)
-         VALUES ($1, $2, $3, $4, $5, $6::numeric)
+        "INSERT INTO scans (status, input_type, filename, source_hash, ip_hash,
+                            price_amount, pending_source)
+         VALUES ($1, $2, $3, $4, $5, $6::numeric, $7)
          RETURNING id, created_at",
     )
     .bind(new.status.as_str())
@@ -32,6 +35,7 @@ pub async fn create_scan(pool: &PgPool, new: NewScan<'_>) -> Result<CreatedScan,
     .bind(new.source_hash)
     .bind(new.ip_hash)
     .bind(new.price_wei)
+    .bind(new.pending_source)
     .fetch_one(pool)
     .await?;
 
@@ -111,6 +115,69 @@ pub async fn set_overall_risk(pool: &PgPool, id: Uuid, risk: &str) -> Result<(),
     sqlx::query("UPDATE scans SET overall_risk = $2 WHERE id = $1")
         .bind(id)
         .bind(risk)
+        .execute(pool)
+        .await?;
+    Ok(())
+}
+
+pub struct PendingScan {
+    pub filename: Option<String>,
+    pub source: Option<String>,
+}
+
+/// Load the transiently-stored source + filename for analysis.
+pub async fn load_pending_source(pool: &PgPool, id: Uuid) -> Result<Option<PendingScan>, sqlx::Error> {
+    let row = sqlx::query("SELECT filename, pending_source FROM scans WHERE id = $1")
+        .bind(id)
+        .fetch_optional(pool)
+        .await?;
+    Ok(row.map(|r| PendingScan {
+        filename: r.get("filename"),
+        source: r.get("pending_source"),
+    }))
+}
+
+/// Clear the transient source once analysis is done (privacy; Section 15).
+pub async fn clear_pending_source(pool: &PgPool, id: Uuid) -> Result<(), sqlx::Error> {
+    sqlx::query("UPDATE scans SET pending_source = NULL WHERE id = $1")
+        .bind(id)
+        .execute(pool)
+        .await?;
+    Ok(())
+}
+
+/// Mark a scan paid and move it to `queued`, only if it is still
+/// `awaiting_payment`. Returns true if this call performed the transition
+/// (guards against duplicate payment events / reorgs).
+pub async fn mark_paid(
+    pool: &PgPool,
+    id: Uuid,
+    payer_address: &str,
+    payment_tx_hash: &str,
+) -> Result<bool, sqlx::Error> {
+    let res = sqlx::query(
+        "UPDATE scans
+         SET status = 'queued', payer_address = $2, payment_tx_hash = $3, paid_at = now()
+         WHERE id = $1 AND status = 'awaiting_payment'",
+    )
+    .bind(id)
+    .bind(payer_address)
+    .bind(payment_tx_hash)
+    .execute(pool)
+    .await?;
+    Ok(res.rows_affected() > 0)
+}
+
+pub async fn get_last_processed_block(pool: &PgPool) -> Result<i64, sqlx::Error> {
+    let row = sqlx::query("SELECT last_processed_block FROM chain_watcher_state WHERE id = 1")
+        .fetch_one(pool)
+        .await?;
+    Ok(row.get("last_processed_block"))
+}
+
+pub async fn set_last_processed_block(pool: &PgPool, block: i64) -> Result<(), sqlx::Error> {
+    sqlx::query("UPDATE chain_watcher_state SET last_processed_block = $1, updated_at = now() WHERE id = 1")
+        .bind(block)
         .execute(pool)
         .await?;
     Ok(())

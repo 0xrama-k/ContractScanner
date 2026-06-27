@@ -69,12 +69,6 @@ async fn main() {
         config.max_concurrent_scans,
     ));
 
-    // Reap orphaned scan folders older than ~2x the Slither timeout.
-    infra::reaper::spawn(
-        std::time::Duration::from_secs((config.slither_timeout_secs * 2).max(120)),
-        std::time::Duration::from_secs(120),
-    );
-
     let llm = match &config.llm_api_key {
         Some(key) => match infra::llm_client::LlmClient::new(
             config.llm_base_url.clone(),
@@ -97,7 +91,24 @@ async fn main() {
         }
     };
 
-    let router = app::build_router(config, db, slither, limiter, llm);
+    let state = app::AppState {
+        config: std::sync::Arc::new(config),
+        db,
+        slither,
+        limiter,
+        llm,
+    };
+
+    // Reap orphaned scan folders older than ~2x the Slither timeout.
+    infra::reaper::spawn(
+        std::time::Duration::from_secs((state.config.slither_timeout_secs * 2).max(120)),
+        std::time::Duration::from_secs(120),
+    );
+
+    // Watch Monad for ScanPaid events (no-op if contract/RPC unset).
+    infra::payment_watcher::spawn(state.clone());
+
+    let router = app::build_router(state);
 
     let listener = match TcpListener::bind(bind_addr).await {
         Ok(l) => l,

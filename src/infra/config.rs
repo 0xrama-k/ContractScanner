@@ -22,6 +22,12 @@ pub struct Config {
     pub chain_id: i64,
     /// Deployed `ScanPayments` address. Optional while developing under bypass.
     pub payment_contract_address: Option<String>,
+    /// Monad JSON-RPC HTTP endpoint for the payment watcher.
+    pub monad_rpc_http_url: Option<String>,
+    /// Confirmations to wait before trusting a payment log.
+    pub payment_confirmations: u64,
+    /// Watcher poll interval, seconds.
+    pub payment_poll_interval_secs: u64,
     /// Seconds a scan may sit in `awaiting_payment` before it expires.
     pub payment_window_secs: i64,
     /// DEV ONLY: skip the on-chain gate and start scans immediately. Must never be
@@ -70,6 +76,11 @@ impl Config {
             payment_contract_address: env::var("PAYMENT_CONTRACT_ADDRESS")
                 .ok()
                 .filter(|s| !s.is_empty()),
+            monad_rpc_http_url: env::var("MONAD_RPC_HTTP_URL")
+                .ok()
+                .filter(|s| !s.is_empty()),
+            payment_confirmations: parse_int("PAYMENT_CONFIRMATIONS", 2)?.max(0) as u64,
+            payment_poll_interval_secs: parse_int("PAYMENT_POLL_INTERVAL_SECS", 5)?.max(1) as u64,
             payment_window_secs: parse_int("PAYMENT_WINDOW_SECS", 1800)?,
             payment_bypass,
             docker_bin: env::var("DOCKER_BIN").unwrap_or_else(|_| "docker".to_string()),
