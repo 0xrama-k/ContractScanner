@@ -16,8 +16,9 @@ use crate::services::scan_service;
 /// keccak256("ScanPaid(bytes32,address,uint256)").
 const SCANPAID_TOPIC: &str =
     "0x639125ad78269da16d3149917eed2cce099067510fdea86de32c6a9b8757bb00";
-/// Cap per getLogs query so backfill over many blocks stays bounded.
-const MAX_BLOCK_RANGE: u64 = 2000;
+/// Cap per getLogs query. Monad RPC limits eth_getLogs to a 100-block range,
+/// so a single query spans at most `from..=from+99` (100 blocks).
+const MAX_BLOCK_RANGE: u64 = 99;
 
 pub fn spawn(state: AppState) {
     tokio::spawn(async move { run(state).await });
@@ -64,6 +65,18 @@ async fn poll_once(
     let last = scan_repository::get_last_processed_block(&state.db)
         .await
         .map_err(|e| e.to_string())? as u64;
+
+    if last == 0 {
+        // First run: start from the chain head. The contract is newly deployed and
+        // scans are created after deployment, so there are no earlier relevant
+        // events — this avoids backfilling from genesis.
+        scan_repository::set_last_processed_block(&state.db, safe_to as i64)
+            .await
+            .map_err(|e| e.to_string())?;
+        tracing::info!(block = safe_to, "payment watcher cursor initialized to chain head");
+        return Ok(());
+    }
+
     let from = last.saturating_add(1);
     if safe_to < from {
         return Ok(()); // nothing newly confirmed
