@@ -337,6 +337,12 @@ contract Vault {
         localStorage.setItem("scan_id", state.scanId);
         renderPaymentOrProgress(created);
         startPolling();
+        // One-click flow: if payment is required, trigger the wallet immediately
+        // instead of making the user click a second button.
+        if(created.payment && !created.payment.bypassed && created.payment.contract_address){
+          state.payment = created.payment;
+          payWithWallet();
+        }
       }catch(e){toast(e.message);}
       finally{$("run").disabled = false;$("run").innerHTML = 'Run security scan <span class="mono">-&gt;</span>';}
     }
@@ -353,7 +359,7 @@ contract Vault {
         warnings: []
       });
       if(!created.payment?.bypassed){
-        toast("Scan created. Complete payment with the displayed bytes32 scan id, then this page will continue polling.");
+        toast("Scan created. Approve the payment in your wallet to start analysis.");
       }
     }
     function stepRows(status){
