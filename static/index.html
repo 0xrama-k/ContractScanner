@@ -203,6 +203,16 @@
         </div>
         <div class="bar"><div id="progress-bar" style="width:0%"></div></div>
       </div>
+      <div id="payment-panel" class="hidden" style="padding:18px 28px;border-bottom:1px solid var(--line);background:rgba(139,92,246,.06)">
+        <div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap">
+          <div style="flex:1;min-width:220px">
+            <div style="font-size:14px;font-weight:600;margin-bottom:4px">Payment required &middot; <span id="pay-amount" class="mono" style="color:#C4B5F0">10 MON</span></div>
+            <div style="font-size:12px;color:#8A93A2">Pay on Monad Testnet to start the scan. This page keeps polling and continues automatically once the payment is confirmed on-chain.</div>
+          </div>
+          <button id="pay-btn" class="primary">Connect wallet &amp; pay</button>
+        </div>
+        <div id="pay-status" class="mono" style="font-size:12px;color:#8A93A2;margin-top:10px"></div>
+      </div>
       <div class="progress-body">
         <div id="steps" class="steps"></div>
         <div class="metadata">
@@ -276,7 +286,7 @@ contract Vault {
   }
 }`;
 
-    const state = { mode: "paste", inputType: "pasted_code", scanId: localStorage.getItem("scan_id") || "", filename: "Vault.sol", poll: null, report: null };
+    const state = { mode: "paste", inputType: "pasted_code", scanId: localStorage.getItem("scan_id") || "", filename: "Vault.sol", poll: null, report: null, payment: null };
     const $ = (id) => document.getElementById(id);
     $("source").value = sample;
 
@@ -391,6 +401,10 @@ contract Vault {
         ["created_at", s.created_at],
         ["warnings", (s.warnings || []).length]
       ].map(([k,v])=>`<div class="kv"><span>${k}</span><span>${escapeHtml(v)}</span></div>`).join("");
+      if(s.payment) state.payment = s.payment;
+      const showPay = s.status === "awaiting_payment" && s.payment && !s.payment.bypassed && !!s.payment.contract_address;
+      $("payment-panel").classList.toggle("hidden", !showPay);
+      if(showPay) $("pay-amount").textContent = `${Number(s.payment.price_wei) / 1e18} MON`;
       if(s.status === "failed" && s.error) toast(s.error.message);
     }
     async function startPolling(){
@@ -521,6 +535,44 @@ contract Vault {
         download(md.filename || "smart-contract-security-report.md", md.content || "", "text/markdown");
       }
     }
+    async function payWithWallet(){
+      const p = state.payment;
+      const setPay = (m) => { $("pay-status").textContent = m; };
+      if(!p || !p.contract_address){ toast("No payment contract is configured on the backend."); return; }
+      if(!window.ethereum){ toast("No EVM wallet found. Install MetaMask to pay in-browser."); return; }
+      const chainIdHex = "0x279f"; // Monad testnet 10143
+      try{
+        $("pay-btn").disabled = true;
+        setPay("Connecting wallet...");
+        const accounts = await window.ethereum.request({ method: "eth_requestAccounts" });
+        const from = accounts[0];
+        try{
+          await window.ethereum.request({ method: "wallet_switchEthereumChain", params: [{ chainId: chainIdHex }] });
+        }catch(switchErr){
+          if(switchErr && switchErr.code === 4902){
+            await window.ethereum.request({ method: "wallet_addEthereumChain", params: [{
+              chainId: chainIdHex, chainName: "Monad Testnet",
+              nativeCurrency: { name: "MON", symbol: "MON", decimals: 18 },
+              rpcUrls: ["https://testnet-rpc.monad.xyz"],
+              blockExplorerUrls: ["https://testnet.monadexplorer.com"]
+            }]});
+          } else { throw switchErr; }
+        }
+        setPay("Confirm the transaction in your wallet...");
+        const data = "0x8609cad1" + p.scan_id_bytes32.replace(/^0x/, ""); // pay(bytes32)
+        const valueHex = "0x" + BigInt(p.price_wei).toString(16);
+        const txHash = await window.ethereum.request({ method: "eth_sendTransaction", params: [{
+          from, to: p.contract_address, value: valueHex, data
+        }]});
+        setPay(`Payment sent: ${txHash.slice(0,18)}... waiting for on-chain confirmation. Analysis starts automatically.`);
+        toast("Payment submitted. The scan will start once the watcher confirms it.");
+      }catch(e){
+        setPay("");
+        toast((e && e.message) || "Payment failed.");
+      }finally{
+        $("pay-btn").disabled = false;
+      }
+    }
     function download(name, content, type){
       const a = document.createElement("a");
       a.href = URL.createObjectURL(new Blob([content], {type}));
@@ -544,6 +596,7 @@ contract Vault {
       if(!btn) return;
       btn.closest(".finding").classList.toggle("open");
     });
+    $("pay-btn").addEventListener("click", payWithWallet);
     $("file-input").addEventListener("change", async (event) => {
       const file = event.target.files[0];
       if(!file) return;
