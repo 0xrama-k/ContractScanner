@@ -209,7 +209,7 @@
             <div style="font-size:14px;font-weight:600;margin-bottom:4px">Payment required &middot; <span id="pay-amount" class="mono" style="color:#C4B5F0">10 MON</span></div>
             <div style="font-size:12px;color:#8A93A2">Pay on Monad Testnet to start the scan. This page keeps polling and continues automatically once the payment is confirmed on-chain.</div>
           </div>
-          <button id="pay-btn" class="primary">Connect wallet &amp; pay</button>
+          <button id="pay-btn" class="primary">Retry payment</button>
         </div>
         <div id="pay-status" class="mono" style="font-size:12px;color:#8A93A2;margin-top:10px"></div>
       </div>
@@ -286,7 +286,7 @@ contract Vault {
   }
 }`;
 
-    const state = { mode: "paste", inputType: "pasted_code", scanId: localStorage.getItem("scan_id") || "", filename: "Vault.sol", poll: null, report: null, payment: null };
+    const state = { mode: "paste", inputType: "pasted_code", scanId: localStorage.getItem("scan_id") || "", filename: "Vault.sol", poll: null, report: null, payment: null, payFailed: false };
     const $ = (id) => document.getElementById(id);
     $("source").value = sample;
 
@@ -330,6 +330,7 @@ contract Vault {
       if(!source.trim()){toast("Paste Solidity source before running a scan.");return;}
       $("run").disabled = true;
       $("run").textContent = "Creating scan...";
+      state.payFailed = false;
       try{
         const payload = {input_type: state.inputType, filename: state.filename, source_code: source};
         const created = await api("/api/scans", {method:"POST", body: JSON.stringify(payload)});
@@ -408,7 +409,7 @@ contract Vault {
         ["warnings", (s.warnings || []).length]
       ].map(([k,v])=>`<div class="kv"><span>${k}</span><span>${escapeHtml(v)}</span></div>`).join("");
       if(s.payment) state.payment = s.payment;
-      const showPay = s.status === "awaiting_payment" && s.payment && !s.payment.bypassed && !!s.payment.contract_address;
+      const showPay = s.status === "awaiting_payment" && s.payment && !s.payment.bypassed && !!s.payment.contract_address && state.payFailed;
       $("payment-panel").classList.toggle("hidden", !showPay);
       if(showPay) $("pay-amount").textContent = `${Number(s.payment.price_wei) / 1e18} MON`;
       if(s.status === "failed" && s.error) toast(s.error.message);
@@ -572,8 +573,12 @@ contract Vault {
         }]});
         setPay(`Payment sent: ${txHash.slice(0,18)}... waiting for on-chain confirmation. Analysis starts automatically.`);
         toast("Payment submitted. The scan will start once the watcher confirms it.");
+        state.payFailed = false;
+        $("payment-panel").classList.add("hidden");
       }catch(e){
-        setPay("");
+        setPay("Payment was not completed — retry below.");
+        state.payFailed = true;
+        $("payment-panel").classList.remove("hidden");
         toast((e && e.message) || "Payment failed.");
       }finally{
         $("pay-btn").disabled = false;
