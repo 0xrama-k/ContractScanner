@@ -133,8 +133,7 @@ pub struct Finding {
     /// Filled by the RiskScorer; `None` until the scoring step runs.
     pub score: Option<ScoreBreakdown>,
 
-    /// Raw Slither detector name, retained for scoring and fingerprinting.
-    /// Not part of the public report shape.
-    #[serde(skip)]
+    /// Raw Slither detector name, retained for scoring/fingerprinting and shown
+    /// in the report detail.
     pub detector: String,
 }

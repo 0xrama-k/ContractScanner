@@ -95,16 +95,26 @@
     .finding-title{font-size:17px;font-weight:600;margin:0 0 8px}
     .badges{display:flex;gap:8px;flex-wrap:wrap}
     .badge{font-family:"JetBrains Mono",monospace;font-size:11px;padding:5px 8px;border-radius:999px;border:1px solid #2A323D;background:#0F1217;color:#9CA6B5}
-    .finding-body{padding:18px 20px;display:grid;gap:14px}
-    .finding-body h4{font-size:12px;color:#C9D3E0;margin:0 0 5px;text-transform:uppercase;letter-spacing:.04em}
+    .finding-head{width:100%;display:flex;gap:16px;align-items:center;justify-content:space-between;padding:16px 18px;background:transparent;border:0;text-align:left;color:var(--text)}
+    .finding-body{display:none;border-top:1px solid var(--line);padding:20px 18px;background:#0F1217;grid-template-columns:1fr 1fr;gap:22px}
+    .finding.open .finding-body{display:grid}
+    .fcol{display:flex;flex-direction:column;gap:16px}
+    .flabel{font-family:"JetBrains Mono",monospace;font-size:11px;letter-spacing:.04em;color:#5B6472;margin-bottom:6px}
     .finding-body p{margin:0;color:var(--muted);line-height:1.55;font-size:13.5px}
+    .score-grid{border:1px solid var(--line);border-radius:11px;overflow:hidden}
+    .score-cells{display:grid;grid-template-columns:repeat(4,1fr)}
+    .score-cells>div{padding:11px 12px;border-right:1px solid var(--line)}
+    .score-cells>div:last-child{border-right:0}
+    .score-final{display:flex;align-items:center;justify-content:space-between;padding:12px 14px;border-top:1px solid var(--line)}
+    .toggle-arrow{transition:transform .15s;font-size:12px}
+    .finding.open .toggle-arrow{transform:rotate(180deg)}
     pre.evidence{margin:0;padding:14px 16px;border-radius:10px;border:1px solid var(--line);background:#0F1217;color:#C9D3E0;overflow:auto;font-family:"JetBrains Mono",monospace;font-size:12px;line-height:1.55}
     .toast{position:fixed;right:22px;bottom:22px;z-index:100;max-width:420px;border:1px solid #3A2F5C;background:#12161D;color:#E8ECF2;border-radius:12px;padding:14px 16px;box-shadow:0 12px 40px rgba(0,0,0,.35);display:none}
     .toast.show{display:block}
     .hidden{display:none!important}
     @media (max-width:900px){
       .app-header{height:auto;min-height:64px;align-items:flex-start;flex-wrap:wrap;padding:14px 18px}.header-right{margin-left:0}.nav{order:3;width:100%;overflow:auto}
-      main{padding:30px 18px 60px}.new-grid,.summary-grid,.finding-grid,.progress-body{grid-template-columns:1fr}.steps{border-right:0;border-bottom:1px solid var(--line)}.sev-grid{grid-template-columns:repeat(2,1fr)}
+      main{padding:30px 18px 60px}.new-grid,.summary-grid,.finding-grid,.progress-body,.finding.open .finding-body{grid-template-columns:1fr}.steps{border-right:0;border-bottom:1px solid var(--line)}.sev-grid{grid-template-columns:repeat(2,1fr)}
       h1{font-size:30px}.editor-wrap{min-height:340px}.file-stat{display:none}
     }
   </style>
@@ -446,21 +456,58 @@ contract Vault {
       const findings = report.findings || [];
       $("findings").innerHTML = findings.length ? findings.map(renderFinding).join("") : `<section class="finding"><div class="finding-top"><div><div class="finding-title">No findings detected</div><div style="color:#8A93A2;font-size:13px">Slither did not report vulnerabilities for this source.</div></div></div></section>`;
     }
-    function renderFinding(f){
+    const fmt = (v) => (typeof v === "number" ? v : "-");
+    function renderFinding(f, idx){
       const [c,bg] = riskColor(f.severity);
       const loc = f.location || {};
-      const location = `${loc.contract || "?"}.${loc.function || "?"} lines ${loc.line_start || "?"}-${loc.line_end || "?"}`;
-      return `<article class="finding">
-        <div class="finding-top">
-          <div><div class="finding-title">${escapeHtml(f.title)}</div><div class="badges"><span class="badge">${escapeHtml(f.id)}</span><span class="badge" style="border-color:${c};color:${c};background:${bg}">${escapeHtml(f.severity)}</span><span class="badge">${escapeHtml(f.confidence)} confidence</span><span class="badge">${escapeHtml(f.category)}</span></div></div>
-          <div class="mono" style="font-size:22px;color:${c};font-weight:600">${f.score?.final_score?.toFixed ? f.score.final_score.toFixed(1) : "-"}</div>
-        </div>
+      const location = `${loc.contract || "?"}.${loc.function || "?"} L${loc.line_start ?? "?"}-${loc.line_end ?? "?"}`;
+      const sc = f.score || {};
+      const fp = (f.false_positive_note || "").trim();
+      const open = idx === 0 ? " open" : "";
+      return `<article class="finding${open}">
+        <button class="finding-head" data-toggle>
+          <div style="flex:1;min-width:0">
+            <div style="display:flex;align-items:center;gap:10px;margin-bottom:6px;flex-wrap:wrap">
+              <span class="badge" style="border-color:${c};color:${c};background:${bg};font-weight:600">${escapeHtml(String(f.severity).toUpperCase())}</span>
+              <span class="mono" style="font-size:12px;color:#5B6472">${escapeHtml(f.id)}</span>
+              <span class="finding-title" style="font-size:15px;margin:0">${escapeHtml(f.title)}</span>
+            </div>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;font-size:12px;color:#8A93A2">
+              <span class="mono" style="color:#9CA6B5">${escapeHtml(f.category)}</span><span style="color:#3E4654">&middot;</span>
+              <span>conf <span style="color:#C9D3E0">${escapeHtml(f.confidence)}</span></span><span style="color:#3E4654">&middot;</span>
+              <span class="badge" style="padding:2px 8px">Detected by Slither</span><span style="color:#3E4654">&middot;</span>
+              <span class="mono">${escapeHtml(location)}</span>
+            </div>
+          </div>
+          <div style="display:flex;align-items:center;gap:14px;flex:none">
+            <div style="text-align:right"><div class="mono" style="font-size:22px;font-weight:600;color:${c};line-height:1">${typeof sc.final_score === "number" ? sc.final_score.toFixed(1) : "-"}</div><div class="mono" style="font-size:10px;color:#5B6472">score</div></div>
+            <span class="mono toggle-arrow" style="color:#5B6472">&#9662;</span>
+          </div>
+        </button>
         <div class="finding-body">
-          <div><h4>Location</h4><p class="mono" style="font-size:12.5px">${escapeHtml(location)}</p></div>
-          <div><h4>Summary</h4><p>${escapeHtml(f.summary || "Not available.")}</p></div>
-          <div><h4>Technical details</h4><p>${escapeHtml(f.technical_details || "Not available.")}</p></div>
-          <div><h4>Fix suggestion</h4><p>${escapeHtml(f.fix_suggestion || "Not available.")}</p></div>
-          ${(f.evidence || []).length ? `<div><h4>Evidence</h4><pre class="evidence">${escapeHtml(f.evidence.join("\n"))}</pre></div>` : ""}
+          <div class="fcol">
+            <div><div class="flabel">SUMMARY</div><p>${escapeHtml(f.summary || "Not available.")}</p></div>
+            <div><div class="flabel">TECHNICAL DETAILS</div><p>${escapeHtml(f.technical_details || "Not available.")}</p></div>
+            <div><div class="flabel" style="color:#FF8A3D">EXPLOIT SCENARIO</div><p>${escapeHtml(f.exploit_scenario || "Not available.")}</p></div>
+            <div><div class="flabel" style="color:#3DDC97">FIX SUGGESTION</div><p>${escapeHtml(f.fix_suggestion || "Not available.")}</p></div>
+            ${fp ? `<div style="border:1px solid #2A2620;border-radius:10px;background:rgba(255,197,61,.05);padding:12px 14px"><div class="flabel" style="color:#FFC53D">FALSE-POSITIVE NOTE</div><p style="font-size:13px">${escapeHtml(fp)}</p></div>` : ""}
+          </div>
+          <div class="fcol">
+            ${(f.evidence || []).length ? `<div><div class="flabel">EVIDENCE &middot; ${escapeHtml(location)}</div><pre class="evidence" style="border-left:3px solid ${c}">${escapeHtml(f.evidence.join("\n"))}</pre></div>` : ""}
+            <div>
+              <div class="flabel">SCORE BREAKDOWN</div>
+              <div class="score-grid">
+                <div class="score-cells">
+                  <div><div style="font-size:10.5px;color:#5B6472;margin-bottom:4px">Base sev</div><div class="mono" style="font-size:15px;color:#C9D3E0">${fmt(sc.base_severity)}</div></div>
+                  <div><div style="font-size:10.5px;color:#5B6472;margin-bottom:4px">Confidence</div><div class="mono" style="font-size:15px;color:#C9D3E0">${fmt(sc.confidence)}</div></div>
+                  <div><div style="font-size:10.5px;color:#5B6472;margin-bottom:4px">Exploit</div><div class="mono" style="font-size:15px;color:#C9D3E0">${fmt(sc.exploitability)}</div></div>
+                  <div><div style="font-size:10.5px;color:#5B6472;margin-bottom:4px">Asset</div><div class="mono" style="font-size:15px;color:#C9D3E0">${fmt(sc.asset_impact)}</div></div>
+                </div>
+                <div class="score-final" style="background:${bg}"><span style="font-size:12px;color:#8A93A2">Final &rarr; severity</span><span class="mono" style="font-size:15px;font-weight:600;color:${c}">${typeof sc.final_score === "number" ? sc.final_score.toFixed(2) : "-"} &middot; ${escapeHtml(f.severity)}</span></div>
+              </div>
+              <div class="mono" style="margin-top:9px;font-size:11px;color:#5B6472">detector: ${escapeHtml(f.detector || "-")} &middot; status: ${escapeHtml(f.status || "Detected")} &middot; source: [${escapeHtml((f.sources || ["slither"]).join(", "))}]</div>
+            </div>
+          </div>
         </div>
       </article>`;
     }
@@ -492,6 +539,11 @@ contract Vault {
     $("nav-report").addEventListener("click", loadReport);
     $("export-json").addEventListener("click", () => exportFile("json"));
     $("export-md").addEventListener("click", () => exportFile("md"));
+    $("findings").addEventListener("click", (e) => {
+      const btn = e.target.closest("[data-toggle]");
+      if(!btn) return;
+      btn.closest(".finding").classList.toggle("open");
+    });
     $("file-input").addEventListener("change", async (event) => {
       const file = event.target.files[0];
       if(!file) return;
