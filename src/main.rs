@@ -53,11 +53,10 @@ async fn main() {
     }
     tracing::info!("database migrations applied");
 
+    let docker_bin = infra::docker_runner::resolve_docker_bin(&config.docker_bin);
+    tracing::info!(docker_bin = %docker_bin, "resolved docker binary");
     let slither = std::sync::Arc::new(infra::slither_runner::SlitherRunner::new(
-        infra::docker_runner::DockerRunner::new(
-            config.docker_bin.clone(),
-            config.slither_image.clone(),
-        ),
+        infra::docker_runner::DockerRunner::new(docker_bin, config.slither_image.clone()),
         infra::docker_runner::DockerLimits {
             timeout: std::time::Duration::from_secs(config.slither_timeout_secs),
             ..Default::default()

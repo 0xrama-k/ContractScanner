@@ -44,6 +44,33 @@ pub enum DockerError {
     Run(String),
 }
 
+/// Resolve the docker executable. An explicit `DOCKER_BIN` (anything other than
+/// the default "docker") is trusted as-is. Otherwise we try `docker` on PATH and,
+/// failing that, probe the standard Docker Desktop install location on Windows —
+/// so `cargo run` works even when the GUI install isn't on the shell PATH.
+pub fn resolve_docker_bin(configured: &str) -> String {
+    if configured != "docker" {
+        return configured.to_string();
+    }
+    if std::process::Command::new("docker")
+        .arg("--version")
+        .output()
+        .is_ok()
+    {
+        return "docker".to_string();
+    }
+    const CANDIDATES: &[&str] = &[
+        r"C:\Program Files\Docker\Docker\resources\bin\docker.exe",
+        r"C:\ProgramData\DockerDesktop\version-bin\docker.exe",
+    ];
+    for c in CANDIDATES {
+        if std::path::Path::new(c).exists() {
+            return c.to_string();
+        }
+    }
+    "docker".to_string()
+}
+
 pub struct DockerRunner {
     docker_bin: String,
     image: String,
