@@ -1,0 +1,515 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>SentryScan Contract Security</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    *{box-sizing:border-box}
+    :root{
+      --bg:#0A0C10;--panel:#12161D;--panel2:#14181F;--panel3:#0F1217;--line:#20262F;--line2:#262D38;
+      --text:#E8ECF2;--muted:#8A93A2;--faint:#5B6472;--purple:#8B5CF6;--blue:#4D9DFF;
+      --red:#FF4D5E;--orange:#FF8A3D;--yellow:#FFC53D;--green:#3DDC97;
+    }
+    html,body{margin:0;padding:0;background:var(--bg);color:var(--text);font-family:"Space Grotesk",system-ui,sans-serif;font-feature-settings:"tnum" 1;-webkit-font-smoothing:antialiased}
+    ::selection{background:var(--purple);color:#fff}
+    ::-webkit-scrollbar{width:10px;height:10px}
+    ::-webkit-scrollbar-thumb{background:#262D38;border-radius:8px}
+    ::-webkit-scrollbar-track{background:transparent}
+    @keyframes spin{to{transform:rotate(360deg)}}
+    @keyframes flow{0%{background-position:0 0}100%{background-position:48px 0}}
+    @keyframes pulse{0%,100%{opacity:1}50%{opacity:.35}}
+    button,input,textarea{font:inherit}
+    button{cursor:pointer}
+    .mono{font-family:"JetBrains Mono",ui-monospace,monospace}
+    .app-header{position:sticky;top:0;z-index:50;display:flex;align-items:center;gap:24px;height:64px;padding:0 32px;background:rgba(10,12,16,.82);backdrop-filter:blur(14px);border-bottom:1px solid #1B212B}
+    .brand{display:flex;align-items:center;gap:11px}
+    .brand-mark{width:30px;height:30px;border-radius:8px;background:var(--purple);display:flex;align-items:center;justify-content:center;font-weight:700;font-size:16px;color:var(--bg);box-shadow:0 0 0 1px rgba(139,92,246,.4),0 0 18px rgba(139,92,246,.35)}
+    .brand-title{display:flex;flex-direction:column;line-height:1.05}
+    .brand-title b{font-weight:600;font-size:14px;letter-spacing:-.01em}
+    .brand-title span{font-family:"JetBrains Mono",monospace;font-size:10px;color:var(--faint);letter-spacing:.04em}
+    .nav{display:flex;gap:4px;margin-left:8px}
+    .nav button{display:flex;align-items:center;gap:8px;padding:7px 14px;border-radius:9px;border:1px solid transparent;background:transparent;color:#8A93A2;font-size:13px;font-weight:500}
+    .nav button.active{border-color:#2A2140;background:rgba(139,92,246,.12);color:#E8ECF2}
+    .nav button span{font-family:"JetBrains Mono",monospace;font-size:11px;opacity:.6}
+    .header-right{margin-left:auto;display:flex;align-items:center;gap:14px}
+    .pill{display:flex;align-items:center;gap:8px;padding:6px 12px;border-radius:999px;border:1px solid #2A2140;background:rgba(139,92,246,.08)}
+    .pill-dot{width:7px;height:7px;border-radius:50%;background:var(--purple);box-shadow:0 0 8px var(--purple)}
+    .pill span:last-child{font-family:"JetBrains Mono",monospace;font-size:11px;color:#B9A8E6;letter-spacing:.03em}
+    main{max-width:1200px;margin:0 auto;padding:44px 32px 80px}
+    .crumb{display:flex;align-items:center;gap:10px;font-family:"JetBrains Mono",monospace;font-size:12px;color:var(--faint);margin-bottom:18px}
+    .crumb b{color:var(--purple);font-weight:500}
+    h1{font-size:38px;font-weight:600;letter-spacing:-.02em;margin:0 0 10px;line-height:1.08}
+    .lede{font-size:16px;color:var(--muted);max-width:650px;margin:0 0 36px;line-height:1.5}
+    .new-grid{display:grid;grid-template-columns:1fr 340px;gap:24px;align-items:start}
+    .card{border:1px solid var(--line2);border-radius:14px;background:var(--panel);overflow:hidden}
+    .editor-tabs{display:flex;align-items:center;gap:4px;padding:10px 12px;border-bottom:1px solid var(--line);background:var(--panel2)}
+    .tab{padding:7px 14px;border-radius:8px;border:none;background:transparent;color:var(--muted);font-size:13px;font-weight:500}
+    .tab.active{background:#222936;color:#F4F7FB}
+    .file-stat{margin-left:auto;display:flex;align-items:center;gap:14px;font-family:"JetBrains Mono",monospace;font-size:11px;color:var(--faint)}
+    .editor-wrap{display:flex;font-family:"JetBrains Mono",monospace;font-size:13px;line-height:23px;max-height:430px;min-height:430px;overflow:hidden}
+    .line-nums{flex:none;padding:14px 0;text-align:right;color:#3A424F;user-select:none;background:#10141A;border-right:1px solid var(--line);min-width:46px;overflow:hidden}
+    .line-nums div{padding:0 12px;height:23px}
+    textarea.code{flex:1;resize:none;border:0;outline:0;background:#12161D;color:#C9D3E0;padding:14px 16px;line-height:23px;white-space:pre;overflow:auto;font-family:"JetBrains Mono",monospace;font-size:13px}
+    .drop{padding:36px;display:flex;align-items:center;justify-content:center;min-height:430px}
+    .drop-inner{width:100%;border:1.5px dashed #313A47;border-radius:14px;background:repeating-linear-gradient(45deg,#10141A,#10141A 12px,#0F1217 12px,#0F1217 24px);padding:48px 24px;text-align:center}
+    .drop-icon{width:52px;height:52px;border-radius:13px;background:#1A1F29;border:1px solid #2A323D;display:flex;align-items:center;justify-content:center;margin:0 auto 16px;color:var(--purple);font-size:18px;font-weight:600}
+    .primary{display:flex;align-items:center;gap:9px;padding:11px 22px;border-radius:10px;border:none;background:var(--purple);color:var(--bg);font-size:14px;font-weight:600;box-shadow:0 0 22px rgba(139,92,246,.32)}
+    .secondary{display:flex;align-items:center;gap:8px;padding:10px 16px;border-radius:10px;border:1px solid #2A323D;background:#161B23;color:#C9D3E0;font-size:13px;font-weight:500}
+    .editor-footer{display:flex;align-items:center;gap:16px;padding:14px 16px;border-top:1px solid var(--line);background:var(--panel2)}
+    .side{display:flex;flex-direction:column;gap:16px}
+    .side-card{border:1px solid var(--line2);border-radius:14px;background:var(--panel);padding:18px}
+    .side-card h3{font-size:13px;font-weight:600;margin:0 0 12px;display:flex;align-items:center;gap:8px}
+    .side-card p{font-size:13px;color:var(--muted);line-height:1.55;margin:0}
+    .kv{display:flex;justify-content:space-between;align-items:center;padding:7px 0;border-bottom:1px solid #1B212B;font-size:12.5px;gap:14px}
+    .kv span:first-child{color:var(--muted)}
+    .kv span:last-child{font-family:"JetBrains Mono",monospace;color:#C9D3E0;text-align:right;word-break:break-word}
+    .progress-card{max-width:960px}
+    .progress-head{padding:26px 28px;border-bottom:1px solid var(--line)}
+    .spinner{width:18px;height:18px;border:2px solid #2A323D;border-top-color:var(--purple);border-radius:50%;display:inline-block;animation:spin .8s linear infinite}
+    .bar{margin-top:20px;height:6px;border-radius:999px;background:#1B212B;overflow:hidden}
+    .bar>div{height:100%;border-radius:999px;background:var(--purple);background-image:repeating-linear-gradient(45deg,rgba(255,255,255,.18) 0 6px,transparent 6px 12px);background-size:48px 48px;animation:flow 1s linear infinite;box-shadow:0 0 14px rgba(139,92,246,.5)}
+    .progress-body{display:grid;grid-template-columns:1fr 280px}
+    .steps{padding:22px 28px;border-right:1px solid var(--line)}
+    .step{display:flex;align-items:flex-start;gap:14px;padding:11px 0}
+    .step-mark{flex:none;width:26px;height:26px;border-radius:50%;border:1.5px solid #2A323D;background:#10141A;display:flex;align-items:center;justify-content:center;font-family:"JetBrains Mono",monospace;font-size:12px;color:var(--faint);margin-top:1px}
+    .step.done .step-mark{border-color:var(--green);background:rgba(61,220,151,.13);color:var(--green)}
+    .step.active .step-mark{border-color:var(--purple);background:rgba(139,92,246,.14);color:#C4B5F0}
+    .metadata{padding:22px;background:var(--panel3)}
+    .report-head{display:flex;align-items:flex-start;justify-content:space-between;gap:24px;flex-wrap:wrap;margin-bottom:28px}
+    .report-title{display:flex;align-items:center;gap:14px;flex-wrap:wrap}
+    .risk-pill{display:inline-flex;align-items:center;gap:8px;padding:6px 14px;border-radius:999px;font-size:13px;font-weight:600;text-transform:uppercase}
+    .summary-grid{display:grid;grid-template-columns:240px 1fr;gap:20px;margin-bottom:20px}
+    .finding-grid{display:grid;grid-template-columns:1fr 320px;gap:20px}
+    .count-card{padding:22px;display:flex;flex-direction:column;justify-content:center}
+    .count{font-family:"JetBrains Mono",monospace;font-size:54px;font-weight:600;line-height:1;letter-spacing:-.02em}
+    .sev-grid{display:grid;grid-template-columns:repeat(5,1fr);gap:12px;padding:20px}
+    .sev{border:1px solid #1B212B;border-radius:12px;background:#0F1217;padding:14px}
+    .sev b{display:block;font-family:"JetBrains Mono",monospace;font-size:28px}
+    .sev span{font-size:12px;color:var(--muted)}
+    .finding{border:1px solid var(--line2);border-radius:14px;background:var(--panel);overflow:hidden;margin-bottom:16px}
+    .finding-top{padding:18px 20px;border-bottom:1px solid var(--line);display:flex;gap:16px;align-items:flex-start;justify-content:space-between}
+    .finding-title{font-size:17px;font-weight:600;margin:0 0 8px}
+    .badges{display:flex;gap:8px;flex-wrap:wrap}
+    .badge{font-family:"JetBrains Mono",monospace;font-size:11px;padding:5px 8px;border-radius:999px;border:1px solid #2A323D;background:#0F1217;color:#9CA6B5}
+    .finding-body{padding:18px 20px;display:grid;gap:14px}
+    .finding-body h4{font-size:12px;color:#C9D3E0;margin:0 0 5px;text-transform:uppercase;letter-spacing:.04em}
+    .finding-body p{margin:0;color:var(--muted);line-height:1.55;font-size:13.5px}
+    pre.evidence{margin:0;padding:14px 16px;border-radius:10px;border:1px solid var(--line);background:#0F1217;color:#C9D3E0;overflow:auto;font-family:"JetBrains Mono",monospace;font-size:12px;line-height:1.55}
+    .toast{position:fixed;right:22px;bottom:22px;z-index:100;max-width:420px;border:1px solid #3A2F5C;background:#12161D;color:#E8ECF2;border-radius:12px;padding:14px 16px;box-shadow:0 12px 40px rgba(0,0,0,.35);display:none}
+    .toast.show{display:block}
+    .hidden{display:none!important}
+    @media (max-width:900px){
+      .app-header{height:auto;min-height:64px;align-items:flex-start;flex-wrap:wrap;padding:14px 18px}.header-right{margin-left:0}.nav{order:3;width:100%;overflow:auto}
+      main{padding:30px 18px 60px}.new-grid,.summary-grid,.finding-grid,.progress-body{grid-template-columns:1fr}.steps{border-right:0;border-bottom:1px solid var(--line)}.sev-grid{grid-template-columns:repeat(2,1fr)}
+      h1{font-size:30px}.editor-wrap{min-height:340px}.file-stat{display:none}
+    }
+  </style>
+</head>
+<body>
+  <header class="app-header">
+    <div class="brand">
+      <div class="brand-mark">S</div>
+      <div class="brand-title"><b>SentryScan</b><span>CONTRACT&nbsp;SECURITY</span></div>
+    </div>
+    <nav class="nav">
+      <button id="nav-new" class="active"><span>01</span>New scan</button>
+      <button id="nav-progress"><span>02</span>Status</button>
+      <button id="nav-report"><span>03</span>Report</button>
+    </nav>
+    <div class="header-right">
+      <div class="pill"><span class="pill-dot"></span><span>MONAD&nbsp;TESTNET</span></div>
+      <span class="mono" style="font-size:11px;color:#3E4654;border:1px solid #1B212B;padding:6px 10px;border-radius:8px">v1.0</span>
+    </div>
+  </header>
+
+  <main id="screen-new">
+    <div class="crumb"><b>/scans/new</b><span>&middot;</span><span>static analysis &middot; single file</span></div>
+    <h1>Scan a smart contract for vulnerabilities</h1>
+    <p class="lede">Paste Solidity source or upload a single <span class="mono" style="color:#C9D3E0;font-size:14px">.sol</span> file. SentryScan runs Slither static analysis in a sandboxed container and returns an actionable, scored report.</p>
+    <div class="new-grid">
+      <section class="card">
+        <div class="editor-tabs">
+          <button id="paste-tab" class="tab active">Paste code</button>
+          <button id="upload-tab" class="tab">Upload .sol</button>
+          <div class="file-stat"><span id="filename-label">Vault.sol</span><span id="source-stat" style="color:#3E4654">22 lines &middot; 0.6 KB</span></div>
+        </div>
+        <div id="paste-pane" class="editor-wrap">
+          <div id="line-nums" class="line-nums"></div>
+          <textarea id="source" class="code" spellcheck="false"></textarea>
+        </div>
+        <div id="upload-pane" class="drop hidden">
+          <label class="drop-inner" for="file-input">
+            <div class="drop-icon mono">{ }</div>
+            <div style="font-size:16px;font-weight:500;margin-bottom:6px">Drop a <span class="mono" style="color:#C9D3E0;font-size:14px">.sol</span> file here</div>
+            <div style="font-size:13px;color:#8A93A2;margin-bottom:18px">or click to browse &middot; max 1 MB &middot; max 5000 lines</div>
+            <span class="secondary" style="display:inline-flex">Choose file</span>
+          </label>
+          <input id="file-input" type="file" accept=".sol" class="hidden">
+        </div>
+        <div class="editor-footer">
+          <div class="mono" style="font-size:11px;color:#5B6472">input_type: <span id="input-label" style="color:#9CA6B5">pasted_code</span></div>
+          <button id="run" class="primary" style="margin-left:auto">Run security scan <span class="mono">-&gt;</span></button>
+        </div>
+      </section>
+      <aside class="side">
+        <div class="side-card">
+          <h3><span style="width:6px;height:6px;border-radius:50%;background:#4D9DFF"></span>Best results</h3>
+          <p>V1 is optimized for single-file or <span style="color:#C9D3E0">flattened</span> Solidity contracts. External imports are shown in metadata but missing dependencies are not auto-resolved.</p>
+        </div>
+        <div class="side-card">
+          <h3>Sandbox limits</h3>
+          <div class="kv"><span>Max size</span><span>1 MB</span></div>
+          <div class="kv"><span>Max lines</span><span>5000</span></div>
+          <div class="kv"><span>Analyzer</span><span>Slither</span></div>
+          <div class="kv"><span>Network</span><span>disabled</span></div>
+        </div>
+        <div style="border:1px solid #20262F;border-radius:14px;background:#0F1217;padding:16px">
+          <div style="font-size:12px;color:#8A93A2;line-height:1.55">Powered by <span style="color:#C9D3E0">Slither</span> &middot; runs network-disabled in Docker &middot; source code is never logged.</div>
+        </div>
+      </aside>
+    </div>
+  </main>
+
+  <main id="screen-progress" class="hidden progress-card">
+    <div class="crumb"><b id="scan-path">/scans/-</b></div>
+    <section class="card">
+      <div class="progress-head">
+        <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:24px">
+          <div>
+            <div style="display:flex;align-items:center;gap:11px;margin-bottom:6px">
+              <span id="status-spinner" class="spinner"></span>
+              <h1 id="status-title" style="font-size:22px;margin:0;letter-spacing:-.01em">Analyzing contract...</h1>
+            </div>
+            <div id="status-subtitle" class="mono" style="font-size:12px;color:#8A93A2">Running Slither static analysis in sandbox</div>
+          </div>
+          <div style="text-align:right">
+            <div class="mono" style="font-size:34px;font-weight:600;color:#8B5CF6;line-height:1"><span id="progress-num">0</span><span style="font-size:18px;color:#5B6472">%</span></div>
+            <div id="updated-at" class="mono" style="font-size:11px;color:#5B6472;margin-top:2px">created now</div>
+          </div>
+        </div>
+        <div class="bar"><div id="progress-bar" style="width:0%"></div></div>
+      </div>
+      <div class="progress-body">
+        <div id="steps" class="steps"></div>
+        <div class="metadata">
+          <div class="mono" style="font-size:11px;color:#5B6472;letter-spacing:.04em;margin-bottom:14px">SCAN METADATA</div>
+          <div id="status-meta"></div>
+        </div>
+      </div>
+      <div style="padding:14px 28px;border-top:1px solid #20262F;background:#14181F;display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+        <span class="mono" style="font-size:11px;color:#5B6472">scan_id</span>
+        <span id="scan-id-foot" class="mono" style="font-size:11.5px;color:#9CA6B5;word-break:break-all"></span>
+        <span id="poll-copy" style="margin-left:auto;font-size:12px;color:#5B6472">Polling every 2s &middot; this link is your only access key</span>
+      </div>
+    </section>
+  </main>
+
+  <main id="screen-report" class="hidden">
+    <div class="report-head">
+      <div>
+        <div class="crumb" style="margin-bottom:12px"><b id="report-path">/scans/-/report</b><span>&middot;</span><span id="report-time">-</span></div>
+        <div class="report-title">
+          <h1 id="report-file" class="mono" style="font-size:28px;margin:0">Contract.sol</h1>
+          <span id="overall-pill" class="risk-pill"></span>
+        </div>
+      </div>
+      <div style="display:flex;gap:10px;flex-wrap:wrap">
+        <button id="export-json" class="secondary"><span class="mono" style="font-size:11px;color:#8B5CF6">{ }</span>Export JSON</button>
+        <button id="export-md" class="secondary"><span class="mono" style="font-size:11px;color:#4D9DFF">md</span>Export Markdown</button>
+      </div>
+    </div>
+    <div class="summary-grid">
+      <section class="card count-card">
+        <div class="mono" style="font-size:11px;color:#5B6472;letter-spacing:.04em;margin-bottom:10px">TOTAL FINDINGS</div>
+        <div id="total-findings" class="count">0</div>
+        <div id="contract-count" style="font-size:13px;color:#8A93A2;margin-top:8px">detected by Slither</div>
+      </section>
+      <section class="card">
+        <div id="severity-grid" class="sev-grid"></div>
+      </section>
+    </div>
+    <div class="finding-grid">
+      <section>
+        <div id="summary-card" class="side-card" style="margin-bottom:16px"></div>
+        <div id="findings"></div>
+      </section>
+      <aside class="side">
+        <div class="side-card"><h3>Contract metadata</h3><div id="report-meta"></div></div>
+        <div class="side-card"><h3>Main risk areas</h3><div id="risk-areas"></div></div>
+        <div class="side-card"><h3>Warnings</h3><div id="warnings"></div></div>
+      </aside>
+    </div>
+  </main>
+
+  <div id="toast" class="toast"></div>
+
+  <script>
+    const sample = `// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.20;
+
+contract Vault {
+  mapping(address => uint256) public balances;
+
+  function deposit() external payable {
+    balances[msg.sender] += msg.value;
+  }
+
+  function withdraw(uint256 amount) external {
+    require(balances[msg.sender] >= amount);
+    (bool ok, ) = msg.sender.call{value: amount}("");
+    require(ok);
+    balances[msg.sender] = 0;
+  }
+}`;
+
+    const state = { mode: "paste", inputType: "pasted_code", scanId: localStorage.getItem("scan_id") || "", filename: "Vault.sol", poll: null, report: null };
+    const $ = (id) => document.getElementById(id);
+    $("source").value = sample;
+
+    function escapeHtml(value){return String(value ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));}
+    function toast(msg){$("toast").textContent = msg;$("toast").classList.add("show");setTimeout(()=>$("toast").classList.remove("show"),5200);}
+    function bytes(text){return new Blob([text]).size;}
+    function shortId(id){return id ? id.slice(0,8) : "-";}
+    function setScreen(name){
+      ["new","progress","report"].forEach(s => {
+        $("screen-"+s).classList.toggle("hidden", s !== name);
+        $("nav-"+s).classList.toggle("active", s === name);
+      });
+    }
+    function updateLines(){
+      const lineCount = Math.max(1, $("source").value.split("\n").length);
+      $("line-nums").innerHTML = Array.from({length: lineCount}, (_,i)=>`<div>${i+1}</div>`).join("");
+      $("source-stat").textContent = `${lineCount} lines / ${(bytes($("source").value)/1024).toFixed(1)} KB`;
+      $("filename-label").textContent = state.filename;
+    }
+    function setMode(mode){
+      state.mode = mode;
+      state.inputType = mode === "paste" ? "pasted_code" : "uploaded_file";
+      $("paste-tab").classList.toggle("active", mode === "paste");
+      $("upload-tab").classList.toggle("active", mode === "upload");
+      $("paste-pane").classList.toggle("hidden", mode !== "paste");
+      $("upload-pane").classList.toggle("hidden", mode !== "upload");
+      $("input-label").textContent = state.inputType;
+    }
+    async function api(path, options = {}){
+      const res = await fetch(path, {headers: {"content-type":"application/json", ...(options.headers || {})}, ...options});
+      const text = await res.text();
+      let body = text ? JSON.parse(text) : null;
+      if(!res.ok){
+        const err = body?.error?.message || body?.message || `Request failed (${res.status})`;
+        throw new Error(err);
+      }
+      return body;
+    }
+    async function createScan(){
+      const source = $("source").value;
+      if(!source.trim()){toast("Paste Solidity source before running a scan.");return;}
+      $("run").disabled = true;
+      $("run").textContent = "Creating scan...";
+      try{
+        const payload = {input_type: state.inputType, filename: state.filename, source_code: source};
+        const created = await api("/api/scans", {method:"POST", body: JSON.stringify(payload)});
+        state.scanId = created.scan_id;
+        localStorage.setItem("scan_id", state.scanId);
+        renderPaymentOrProgress(created);
+        startPolling();
+      }catch(e){toast(e.message);}
+      finally{$("run").disabled = false;$("run").innerHTML = 'Run security scan <span class="mono">-&gt;</span>';}
+    }
+    function renderPaymentOrProgress(created){
+      setScreen("progress");
+      renderStatus({
+        scan_id: created.scan_id,
+        status: created.status,
+        current_step: created.payment?.bypassed ? "Payment bypassed; analysis starting" : "Waiting for payment",
+        progress: created.payment?.bypassed ? 10 : 0,
+        payment: created.payment,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+        warnings: []
+      });
+      if(!created.payment?.bypassed){
+        toast("Scan created. Complete payment with the displayed bytes32 scan id, then this page will continue polling.");
+      }
+    }
+    function stepRows(status){
+      const steps = [
+        ["awaiting_payment","Payment gate","Awaiting Monad Testnet payment"],
+        ["queued","Queued","Waiting for sandbox capacity"],
+        ["running","Workspace","Preparing isolated source folder"],
+        ["analyzing_slither","Slither","Static analysis in Docker"],
+        ["analyzing_llm","Explanations","Optional LLM enrichment"],
+        ["scoring","Risk scoring","Normalizing severities"],
+        ["report_ready","Report","Persisting final report"]
+      ];
+      const order = steps.map(s=>s[0]);
+      const current = order.indexOf(status);
+      return steps.map((s,i)=>{
+        const cls = status === "failed" ? (i < current ? "done" : "") : i < current ? "done" : i === current ? "active" : "";
+        const mark = cls === "done" ? "ok" : String(i+1);
+        return `<div class="step ${cls}"><div class="step-mark">${mark}</div><div style="flex:1"><div style="font-size:14px;font-weight:500;color:${cls?"#E8ECF2":"#8A93A2"}">${s[1]}</div><div class="mono" style="font-size:12px;color:#5B6472;margin-top:1px">${s[2]}</div></div><div class="mono" style="font-size:11px;color:${cls==="active"?"#C4B5F0":"#5B6472"};margin-top:3px">${cls==="done"?"done":cls==="active"?"active":"pending"}</div></div>`;
+      }).join("");
+    }
+    function paymentMeta(payment){
+      if(!payment) return "";
+      return [
+        ["chain_id", payment.chain_id],
+        ["price_wei", payment.price_wei],
+        ["contract", payment.contract_address || "not configured"],
+        ["scan_id_bytes32", payment.scan_id_bytes32],
+        ["expires_at", payment.expires_at],
+        ["bypassed", String(payment.bypassed)]
+      ].map(([k,v])=>`<div class="kv"><span>${k}</span><span>${escapeHtml(v)}</span></div>`).join("");
+    }
+    function renderStatus(s){
+      $("scan-path").textContent = `/scans/${shortId(s.scan_id || state.scanId)}`;
+      $("scan-id-foot").textContent = s.scan_id || state.scanId;
+      $("progress-num").textContent = s.progress ?? 0;
+      $("progress-bar").style.width = `${s.progress ?? 0}%`;
+      $("updated-at").textContent = s.updated_at ? `updated ${new Date(s.updated_at).toLocaleTimeString()}` : "";
+      $("status-title").textContent = s.status === "failed" ? "Scan failed" : s.status === "report_ready" ? "Report ready" : s.current_step || "Analyzing contract...";
+      $("status-subtitle").textContent = s.error?.message || (s.status === "awaiting_payment" ? "Complete payment to start analysis" : "Running Slither static analysis in sandbox");
+      $("status-spinner").style.display = ["failed","report_ready","awaiting_payment"].includes(s.status) ? "none" : "inline-block";
+      $("steps").innerHTML = stepRows(s.status);
+      $("status-meta").innerHTML = paymentMeta(s.payment) || [
+        ["status", s.status],
+        ["current_step", s.current_step],
+        ["created_at", s.created_at],
+        ["warnings", (s.warnings || []).length]
+      ].map(([k,v])=>`<div class="kv"><span>${k}</span><span>${escapeHtml(v)}</span></div>`).join("");
+      if(s.status === "failed" && s.error) toast(s.error.message);
+    }
+    async function startPolling(){
+      if(!state.scanId){toast("No scan id available yet.");return;}
+      setScreen("progress");
+      clearInterval(state.poll);
+      const tick = async () => {
+        try{
+          const status = await api(`/api/scans/${state.scanId}`);
+          renderStatus(status);
+          if(status.status === "report_ready"){
+            clearInterval(state.poll);
+            await loadReport();
+          }
+          if(status.status === "failed") clearInterval(state.poll);
+        }catch(e){clearInterval(state.poll);toast(e.message);}
+      };
+      await tick();
+      state.poll = setInterval(tick, 2000);
+    }
+    function riskColor(risk){
+      const r = String(risk || "").toLowerCase();
+      if(r.includes("critical")) return ["#FF4D5E","rgba(255,77,94,.10)"];
+      if(r.includes("high")) return ["#FF8A3D","rgba(255,138,61,.10)"];
+      if(r.includes("medium")) return ["#FFC53D","rgba(255,197,61,.10)"];
+      if(r.includes("low")) return ["#3DDC97","rgba(61,220,151,.10)"];
+      return ["#4D9DFF","rgba(77,157,255,.10)"];
+    }
+    async function loadReport(){
+      if(!state.scanId){toast("No scan id available yet.");return;}
+      try{
+        state.report = await api(`/api/scans/${state.scanId}/report`);
+        renderReport(state.report);
+        setScreen("report");
+      }catch(e){toast(e.message);}
+    }
+    function renderReport(report){
+      const meta = report.contract_metadata || {};
+      const summary = report.summary || {};
+      const file = meta.filename || state.filename || "Contract.sol";
+      const risk = summary.overall_risk || "Unknown";
+      const [color,bg] = riskColor(risk);
+      $("report-path").textContent = `/scans/${shortId(report.scan_id || state.scanId)}/report`;
+      $("report-time").textContent = new Date().toLocaleString();
+      $("report-file").textContent = file;
+      $("overall-pill").style.cssText = `border:1px solid ${color};background:${bg};color:${color}`;
+      $("overall-pill").innerHTML = `<span style="width:7px;height:7px;border-radius:50%;background:${color};box-shadow:0 0 8px ${color}"></span>${escapeHtml(risk)} risk`;
+      $("total-findings").textContent = summary.total_findings ?? 0;
+      $("contract-count").textContent = `across ${(meta.contracts || []).length || 1} contracts / detected by Slither`;
+      const sev = [["critical","Critical", "#FF4D5E"],["high","High","#FF8A3D"],["medium","Medium","#FFC53D"],["low","Low","#3DDC97"],["informational","Info","#4D9DFF"]];
+      $("severity-grid").innerHTML = sev.map(([k,label,c])=>`<div class="sev"><b style="color:${c}">${summary[k] ?? 0}</b><span>${label}</span></div>`).join("");
+      $("summary-card").innerHTML = `<h3>What this contract does</h3><p>${escapeHtml(report.contract_summary || "No contract summary was generated for this scan.")}</p>`;
+      $("report-meta").innerHTML = [
+        ["filename", meta.filename],
+        ["pragma", meta.pragma],
+        ["contracts", (meta.contracts || []).join(", ") || "none"],
+        ["functions", (meta.functions || []).slice(0,8).join(", ") || "none"],
+        ["imports", (meta.imports || []).join(", ") || "none"],
+        ["unresolved", (meta.unresolved_imports || []).join(", ") || "none"]
+      ].map(([k,v])=>`<div class="kv"><span>${k}</span><span>${escapeHtml(v || "unknown")}</span></div>`).join("");
+      $("risk-areas").innerHTML = (report.main_risk_areas || []).length ? report.main_risk_areas.map(a=>`<p style="margin:0 0 10px;color:#8A93A2;line-height:1.5"><span style="color:#C9D3E0">${escapeHtml(a.area)}</span><br><span class="mono" style="font-size:11px;color:#5B6472">${escapeHtml((a.based_on_finding_ids || []).join(", ") || "no linked finding")}</span></p>`).join("") : `<p style="color:#8A93A2;margin:0">No grouped risk areas.</p>`;
+      $("warnings").innerHTML = (report.warnings || []).length ? report.warnings.map(w=>`<p style="margin:0 0 10px;color:#8A93A2;line-height:1.5">${escapeHtml(w)}</p>`).join("") : `<p style="color:#8A93A2;margin:0">No warnings.</p>`;
+      const findings = report.findings || [];
+      $("findings").innerHTML = findings.length ? findings.map(renderFinding).join("") : `<section class="finding"><div class="finding-top"><div><div class="finding-title">No findings detected</div><div style="color:#8A93A2;font-size:13px">Slither did not report vulnerabilities for this source.</div></div></div></section>`;
+    }
+    function renderFinding(f){
+      const [c,bg] = riskColor(f.severity);
+      const loc = f.location || {};
+      const location = `${loc.contract || "?"}.${loc.function || "?"} lines ${loc.line_start || "?"}-${loc.line_end || "?"}`;
+      return `<article class="finding">
+        <div class="finding-top">
+          <div><div class="finding-title">${escapeHtml(f.title)}</div><div class="badges"><span class="badge">${escapeHtml(f.id)}</span><span class="badge" style="border-color:${c};color:${c};background:${bg}">${escapeHtml(f.severity)}</span><span class="badge">${escapeHtml(f.confidence)} confidence</span><span class="badge">${escapeHtml(f.category)}</span></div></div>
+          <div class="mono" style="font-size:22px;color:${c};font-weight:600">${f.score?.final_score?.toFixed ? f.score.final_score.toFixed(1) : "-"}</div>
+        </div>
+        <div class="finding-body">
+          <div><h4>Location</h4><p class="mono" style="font-size:12.5px">${escapeHtml(location)}</p></div>
+          <div><h4>Summary</h4><p>${escapeHtml(f.summary || "Not available.")}</p></div>
+          <div><h4>Technical details</h4><p>${escapeHtml(f.technical_details || "Not available.")}</p></div>
+          <div><h4>Fix suggestion</h4><p>${escapeHtml(f.fix_suggestion || "Not available.")}</p></div>
+          ${(f.evidence || []).length ? `<div><h4>Evidence</h4><pre class="evidence">${escapeHtml(f.evidence.join("\n"))}</pre></div>` : ""}
+        </div>
+      </article>`;
+    }
+    async function exportFile(kind){
+      if(!state.scanId) return;
+      if(kind === "json"){
+        const report = state.report || await api(`/api/scans/${state.scanId}/export/json`);
+        download("smart-contract-security-report.json", JSON.stringify(report,null,2), "application/json");
+      }else{
+        const md = await api(`/api/scans/${state.scanId}/export/markdown`);
+        download(md.filename || "smart-contract-security-report.md", md.content || "", "text/markdown");
+      }
+    }
+    function download(name, content, type){
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(new Blob([content], {type}));
+      a.download = name;
+      a.click();
+      setTimeout(()=>URL.revokeObjectURL(a.href), 500);
+    }
+
+    $("source").addEventListener("input", updateLines);
+    $("source").addEventListener("scroll", () => {$("line-nums").scrollTop = $("source").scrollTop;});
+    $("paste-tab").addEventListener("click", () => setMode("paste"));
+    $("upload-tab").addEventListener("click", () => setMode("upload"));
+    $("run").addEventListener("click", createScan);
+    $("nav-new").addEventListener("click", () => setScreen("new"));
+    $("nav-progress").addEventListener("click", startPolling);
+    $("nav-report").addEventListener("click", loadReport);
+    $("export-json").addEventListener("click", () => exportFile("json"));
+    $("export-md").addEventListener("click", () => exportFile("md"));
+    $("file-input").addEventListener("change", async (event) => {
+      const file = event.target.files[0];
+      if(!file) return;
+      state.filename = file.name;
+      $("source").value = await file.text();
+      updateLines();
+      state.mode = "paste";
+      state.inputType = "uploaded_file";
+      $("paste-tab").classList.remove("active");
+      $("upload-tab").classList.add("active");
+      $("paste-pane").classList.remove("hidden");
+      $("upload-pane").classList.add("hidden");
+      $("input-label").textContent = state.inputType;
+    });
+    updateLines();
+    if(state.scanId) {
+      $("scan-id-foot").textContent = state.scanId;
+    }
+  </script>
+</body>
+</html>

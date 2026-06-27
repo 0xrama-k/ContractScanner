@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use axum::{
+    response::Html,
     routing::{get, post},
     Router,
 };
@@ -30,6 +31,7 @@ pub struct AppState {
 /// Build the full application router with shared state and middleware.
 pub fn build_router(state: AppState) -> Router {
     Router::new()
+        .route("/", get(index))
         .route("/health", get(api::health::health))
         .route("/api/scans", post(api::scan_routes::create_scan))
         .route("/api/scans/:scan_id", get(api::scan_routes::get_scan))
@@ -50,4 +52,8 @@ pub fn build_router(state: AppState) -> Router {
         // V1 frontend is a separate origin (Section "missing points": CORS).
         // Permissive for now; tighten to the real frontend origin before deploy.
         .layer(CorsLayer::permissive())
+}
+
+async fn index() -> Html<&'static str> {
+    Html(include_str!("../static/index.html"))
 }
