@@ -66,65 +66,82 @@ async fn poll_once(
         .await
         .map_err(|e| e.to_string())? as u64;
 
-    if last == 0 {
-        // First run: start from the chain head. The contract is newly deployed and
-        // scans are created after deployment, so there are no earlier relevant
-        // events — this avoids backfilling from genesis.
-        scan_repository::set_last_processed_block(&state.db, safe_to as i64)
-            .await
-            .map_err(|e| e.to_string())?;
-        tracing::info!(block = safe_to, "payment watcher cursor initialized to chain head");
+    // First run: start from the chain head (contract is newly deployed; no prior
+    // relevant events) — avoids backfilling from genesis.
+    let mut cursor = if last == 0 {
+        safe_to.saturating_add(1)
+    } else {
+        last.saturating_add(1)
+    };
+
+    // If far behind (e.g. after downtime), fast-forward: payments older than the
+    // window are expired anyway, so don't replay ancient history.
+    const LOOKBACK_MAX: u64 = 5000;
+    if safe_to > cursor && safe_to - cursor > LOOKBACK_MAX {
+        cursor = safe_to - LOOKBACK_MAX;
+    }
+
+    if cursor > safe_to {
+        if last == 0 {
+            scan_repository::set_last_processed_block(&state.db, safe_to as i64)
+                .await
+                .map_err(|e| e.to_string())?;
+            tracing::info!(block = safe_to, "payment watcher cursor initialized to chain head");
+        }
         return Ok(());
     }
 
-    let from = last.saturating_add(1);
-    if safe_to < from {
-        return Ok(()); // nothing newly confirmed
-    }
-    let to = safe_to.min(from.saturating_add(MAX_BLOCK_RANGE));
-
-    let params = json!([{
-        "address": contract,
-        "fromBlock": format!("0x{from:x}"),
-        "toBlock": format!("0x{to:x}"),
-        "topics": [SCANPAID_TOPIC],
-    }]);
-    let result = rpc_call(http, rpc, "eth_getLogs", params).await?;
-    let logs = result.as_array().cloned().unwrap_or_default();
-
-    for log in &logs {
-        let topics = log
-            .get("topics")
-            .and_then(Value::as_array)
-            .cloned()
-            .unwrap_or_default();
-        if topics.len() < 3 {
-            continue; // need topic0(sig) + scanId + payer
+    // Walk forward in <=100-block windows, several per poll, to catch up quickly
+    // on a fast chain (bounded so one poll can't run unboundedly).
+    let mut windows = 0;
+    while cursor <= safe_to && windows < 200 {
+        let to = cursor.saturating_add(MAX_BLOCK_RANGE).min(safe_to);
+        let params = json!([{
+            "address": contract,
+            "fromBlock": format!("0x{cursor:x}"),
+            "toBlock": format!("0x{to:x}"),
+            "topics": [SCANPAID_TOPIC],
+        }]);
+        let result = rpc_call(http, rpc, "eth_getLogs", params).await?;
+        for log in result.as_array().cloned().unwrap_or_default().iter() {
+            handle_log(state, log, price).await;
         }
-
-        let Some(scan_id) = scan_id_from_topic(topics[1].as_str().unwrap_or("")) else {
-            continue;
-        };
-        let payer = address_from_topic(topics[2].as_str().unwrap_or(""));
-        let amount = u128_from_hex(log.get("data").and_then(Value::as_str).unwrap_or(""));
-        let tx_hash = log
-            .get("transactionHash")
-            .and_then(Value::as_str)
-            .unwrap_or("")
-            .to_string();
-
-        // Contract enforces msg.value >= PRICE, but verify defensively.
-        if amount < price {
-            tracing::warn!(%scan_id, amount, "ScanPaid below price; ignoring");
-            continue;
-        }
-        scan_service::on_payment_observed(state, scan_id, &payer, &tx_hash).await;
+        scan_repository::set_last_processed_block(&state.db, to as i64)
+            .await
+            .map_err(|e| e.to_string())?;
+        cursor = to.saturating_add(1);
+        windows += 1;
     }
-
-    scan_repository::set_last_processed_block(&state.db, to as i64)
-        .await
-        .map_err(|e| e.to_string())?;
     Ok(())
+}
+
+/// Decode one ScanPaid log and, if valid, start the paid scan.
+async fn handle_log(state: &AppState, log: &Value, price: u128) {
+    let topics = log
+        .get("topics")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    if topics.len() < 3 {
+        return; // need topic0(sig) + scanId + payer
+    }
+    let Some(scan_id) = scan_id_from_topic(topics[1].as_str().unwrap_or("")) else {
+        return;
+    };
+    let payer = address_from_topic(topics[2].as_str().unwrap_or(""));
+    let amount = u128_from_hex(log.get("data").and_then(Value::as_str).unwrap_or(""));
+    let tx_hash = log
+        .get("transactionHash")
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .to_string();
+
+    // Contract enforces msg.value >= PRICE, but verify defensively.
+    if amount < price {
+        tracing::warn!(%scan_id, amount, "ScanPaid below price; ignoring");
+        return;
+    }
+    scan_service::on_payment_observed(state, scan_id, &payer, &tx_hash).await;
 }
 
 async fn rpc_call(
