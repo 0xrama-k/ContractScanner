@@ -112,6 +112,19 @@
     .toast{position:fixed;right:22px;bottom:22px;z-index:100;max-width:420px;border:1px solid #3A2F5C;background:#12161D;color:#E8ECF2;border-radius:12px;padding:14px 16px;box-shadow:0 12px 40px rgba(0,0,0,.35);display:none}
     .toast.show{display:block}
     .hidden{display:none!important}
+    .wallet-btn{display:flex;align-items:center;gap:8px;padding:7px 14px;border-radius:9px;border:1px solid #2A2140;background:rgba(139,92,246,.12);color:#C4B5F0;font-size:13px;font-weight:600}
+    .wallet-btn .dot{width:7px;height:7px;border-radius:50%;background:#3DDC97;box-shadow:0 0 8px #3DDC97}
+    .modal-overlay{position:fixed;inset:0;z-index:200;background:rgba(0,0,0,.6);backdrop-filter:blur(4px);display:none;align-items:center;justify-content:center;padding:16px}
+    .modal-overlay.show{display:flex}
+    .modal{width:360px;max-width:100%;background:var(--panel);border:1px solid var(--line2);border-radius:16px;padding:20px;box-shadow:0 20px 60px rgba(0,0,0,.5)}
+    .modal h3{margin:0 0 4px;font-size:16px}
+    .modal .sub{font-size:12px;color:var(--muted);margin:0 0 16px;line-height:1.5}
+    .wallet-list{display:flex;flex-direction:column;gap:8px}
+    .wallet-row{display:flex;align-items:center;gap:12px;padding:11px 12px;border:1px solid var(--line2);border-radius:11px;background:var(--panel3);color:var(--text);text-align:left;width:100%}
+    .wallet-row:hover{border-color:var(--purple)}
+    .wallet-row img{width:26px;height:26px;border-radius:7px;object-fit:contain}
+    .wallet-row .nm{font-size:14px;font-weight:500}
+    .modal-close{margin-top:14px;width:100%;padding:9px;border-radius:9px;border:1px solid var(--line2);background:transparent;color:var(--muted)}
     @media (max-width:900px){
       .app-header{height:auto;min-height:64px;align-items:flex-start;flex-wrap:wrap;padding:14px 18px}.header-right{margin-left:0}.nav{order:3;width:100%;overflow:auto}
       main{padding:30px 18px 60px}.new-grid,.summary-grid,.finding-grid,.progress-body,.finding.open .finding-body{grid-template-columns:1fr}.steps{border-right:0;border-bottom:1px solid var(--line)}.sev-grid{grid-template-columns:repeat(2,1fr)}
@@ -131,6 +144,7 @@
       <button id="nav-report"><span>03</span>Report</button>
     </nav>
     <div class="header-right">
+      <button id="connect-wallet" class="wallet-btn">Connect wallet</button>
       <div class="pill"><span class="pill-dot"></span><span>MONAD&nbsp;TESTNET</span></div>
       <span class="mono" style="font-size:11px;color:#3E4654;border:1px solid #1B212B;padding:6px 10px;border-radius:8px">v1.0</span>
     </div>
@@ -265,6 +279,15 @@
     </div>
   </main>
 
+  <div id="wallet-modal" class="modal-overlay">
+    <div class="modal">
+      <h3>Connect a wallet</h3>
+      <p class="sub">Choose a wallet to pay on Monad Testnet. Detected from your installed browser wallets.</p>
+      <div id="wallet-list" class="wallet-list"></div>
+      <button id="wallet-cancel" class="modal-close">Cancel</button>
+    </div>
+  </div>
+
   <div id="toast" class="toast"></div>
 
   <script>
@@ -286,7 +309,7 @@ contract Vault {
   }
 }`;
 
-    const state = { mode: "paste", inputType: "pasted_code", scanId: localStorage.getItem("scan_id") || "", filename: "Vault.sol", poll: null, report: null, payment: null, payFailed: false };
+    const state = { mode: "paste", inputType: "pasted_code", scanId: localStorage.getItem("scan_id") || "", filename: "Vault.sol", poll: null, report: null, payment: null, payFailed: false, wallet: { provider: null, account: null, name: null } };
     const $ = (id) => document.getElementById(id);
     $("source").value = sample;
 
@@ -542,22 +565,80 @@ contract Vault {
         download(md.filename || "smart-contract-security-report.md", md.content || "", "text/markdown");
       }
     }
+    // --- Wallet discovery (EIP-6963: multi injected provider discovery) ---
+    const discoveredWallets = [];
+    window.addEventListener("eip6963:announceProvider", (e) => {
+      const { info, provider } = e.detail;
+      if(!discoveredWallets.find(w => w.info.uuid === info.uuid)) discoveredWallets.push({ info, provider });
+    });
+    window.dispatchEvent(new Event("eip6963:requestProvider"));
+
+    function shortAddr(a){ return a ? a.slice(0,6) + "..." + a.slice(-4) : ""; }
+    function renderWalletButton(){
+      const w = state.wallet;
+      $("connect-wallet").innerHTML = w.account
+        ? `<span class="dot"></span>${shortAddr(w.account)}`
+        : "Connect wallet";
+    }
+    function openWalletModal(){
+      const list = $("wallet-list");
+      if(discoveredWallets.length){
+        list.innerHTML = discoveredWallets.map((w,i)=>`<button class="wallet-row" data-i="${i}">${w.info.icon?`<img src="${w.info.icon}" alt="">`:""}<span class="nm">${escapeHtml(w.info.name)}</span></button>`).join("");
+      } else if(window.ethereum){
+        list.innerHTML = `<button class="wallet-row" data-fallback="1"><span class="nm">Injected wallet</span></button>`;
+      } else {
+        list.innerHTML = `<p class="sub">No wallet detected. Install a browser wallet such as MetaMask, Rabby, or Coinbase Wallet, then reload.</p>`;
+      }
+      $("wallet-modal").classList.add("show");
+    }
+    function closeWalletModal(){ $("wallet-modal").classList.remove("show"); }
+    async function connectProvider(provider, name){
+      try{
+        const accounts = await provider.request({ method: "eth_requestAccounts" });
+        state.wallet = { provider, account: accounts[0], name };
+        renderWalletButton();
+        toast(`Connected ${name || "wallet"}: ${shortAddr(accounts[0])}`);
+        if(provider.on) provider.on("accountsChanged", (accs) => {
+          state.wallet.account = accs[0] || null;
+          if(!accs[0]) state.wallet.provider = null;
+          renderWalletButton();
+        });
+      }catch(e){ toast((e && e.message) || "Failed to connect wallet."); }
+      closeWalletModal();
+    }
+    $("connect-wallet").addEventListener("click", openWalletModal);
+    $("wallet-cancel").addEventListener("click", closeWalletModal);
+    $("wallet-modal").addEventListener("click", (e)=>{ if(e.target.id === "wallet-modal") closeWalletModal(); });
+    $("wallet-list").addEventListener("click", (e)=>{
+      const row = e.target.closest(".wallet-row");
+      if(!row) return;
+      if(row.dataset.fallback){ connectProvider(window.ethereum, "Injected"); return; }
+      const w = discoveredWallets[Number(row.dataset.i)];
+      if(w) connectProvider(w.provider, w.info.name);
+    });
+
     async function payWithWallet(){
       const p = state.payment;
       const setPay = (m) => { $("pay-status").textContent = m; };
       if(!p || !p.contract_address){ toast("No payment contract is configured on the backend."); return; }
-      if(!window.ethereum){ toast("No EVM wallet found. Install MetaMask to pay in-browser."); return; }
+      // Require a chosen wallet; open the picker if none is connected yet.
+      if(!state.wallet.provider){
+        openWalletModal();
+        setPay("Select a wallet, then click Retry payment.");
+        state.payFailed = true;
+        $("payment-panel").classList.remove("hidden");
+        return;
+      }
+      const provider = state.wallet.provider;
       const chainIdHex = "0x279f"; // Monad testnet 10143
       try{
         $("pay-btn").disabled = true;
-        setPay("Connecting wallet...");
-        const accounts = await window.ethereum.request({ method: "eth_requestAccounts" });
-        const from = accounts[0];
+        const from = state.wallet.account || (await provider.request({ method: "eth_requestAccounts" }))[0];
         try{
-          await window.ethereum.request({ method: "wallet_switchEthereumChain", params: [{ chainId: chainIdHex }] });
+          await provider.request({ method: "wallet_switchEthereumChain", params: [{ chainId: chainIdHex }] });
         }catch(switchErr){
           if(switchErr && switchErr.code === 4902){
-            await window.ethereum.request({ method: "wallet_addEthereumChain", params: [{
+            await provider.request({ method: "wallet_addEthereumChain", params: [{
               chainId: chainIdHex, chainName: "Monad Testnet",
               nativeCurrency: { name: "MON", symbol: "MON", decimals: 18 },
               rpcUrls: ["https://testnet-rpc.monad.xyz"],
@@ -568,7 +649,7 @@ contract Vault {
         setPay("Confirm the transaction in your wallet...");
         const data = "0x8609cad1" + p.scan_id_bytes32.replace(/^0x/, ""); // pay(bytes32)
         const valueHex = "0x" + BigInt(p.price_wei).toString(16);
-        const txHash = await window.ethereum.request({ method: "eth_sendTransaction", params: [{
+        const txHash = await provider.request({ method: "eth_sendTransaction", params: [{
           from, to: p.contract_address, value: valueHex, data
         }]});
         setPay(`Payment sent: ${txHash.slice(0,18)}... waiting for on-chain confirmation. Analysis starts automatically.`);
