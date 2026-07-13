@@ -28,8 +28,7 @@ kicked off automatically the instant the payment settles on Arc.
 
 ## 3. Circle Developer Account email
 
-`ramazankaratas626@gmail.com`
-_(Replace if your Circle Console account uses a different email.)_
+`0xrama.k@gmail.com`
 
 ## 4. Circle products used on Arc
 
