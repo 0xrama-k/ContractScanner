@@ -145,7 +145,7 @@
     </nav>
     <div class="header-right">
       <button id="connect-wallet" class="wallet-btn">Connect wallet</button>
-      <div class="pill"><span class="pill-dot"></span><span>MONAD&nbsp;TESTNET</span></div>
+      <div class="pill"><span class="pill-dot"></span><span>ARC&nbsp;TESTNET&nbsp;&middot;&nbsp;USDC</span></div>
       <span class="mono" style="font-size:11px;color:#3E4654;border:1px solid #1B212B;padding:6px 10px;border-radius:8px">v1.0</span>
     </div>
   </header>
@@ -220,8 +220,8 @@
       <div id="payment-panel" class="hidden" style="padding:18px 28px;border-bottom:1px solid var(--line);background:rgba(139,92,246,.06)">
         <div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap">
           <div style="flex:1;min-width:220px">
-            <div style="font-size:14px;font-weight:600;margin-bottom:4px">Payment required &middot; <span id="pay-amount" class="mono" style="color:#C4B5F0">10 MON</span></div>
-            <div style="font-size:12px;color:#8A93A2">Pay on Monad Testnet to start the scan. This page keeps polling and continues automatically once the payment is confirmed on-chain.</div>
+            <div style="font-size:14px;font-weight:600;margin-bottom:4px">Payment required &middot; <span id="pay-amount" class="mono" style="color:#C4B5F0">10 USDC</span></div>
+            <div style="font-size:12px;color:#8A93A2">Pay in USDC on Circle's Arc Testnet to start the scan. This page keeps polling and continues automatically once the payment is confirmed on-chain.</div>
           </div>
           <button id="pay-btn" class="primary">Retry payment</button>
         </div>
@@ -282,7 +282,7 @@
   <div id="wallet-modal" class="modal-overlay">
     <div class="modal">
       <h3>Connect a wallet</h3>
-      <p class="sub">Choose a wallet to pay on Monad Testnet. Detected from your installed browser wallets.</p>
+      <p class="sub">Choose a wallet to pay in USDC on Arc Testnet. Detected from your installed browser wallets.</p>
       <div id="wallet-list" class="wallet-list"></div>
       <button id="wallet-cancel" class="modal-close">Cancel</button>
     </div>
@@ -388,7 +388,7 @@ contract Vault {
     }
     function stepRows(status){
       const steps = [
-        ["awaiting_payment","Payment gate","Awaiting Monad Testnet payment"],
+        ["awaiting_payment","Payment gate","Awaiting USDC payment on Arc"],
         ["queued","Queued","Waiting for sandbox capacity"],
         ["running","Workspace","Preparing isolated source folder"],
         ["analyzing_slither","Slither","Static analysis in Docker"],
@@ -434,7 +434,7 @@ contract Vault {
       if(s.payment) state.payment = s.payment;
       const showPay = s.status === "awaiting_payment" && s.payment && !s.payment.bypassed && !!s.payment.contract_address && state.payFailed;
       $("payment-panel").classList.toggle("hidden", !showPay);
-      if(showPay) $("pay-amount").textContent = `${Number(s.payment.price_wei) / 1e18} MON`;
+      if(showPay) $("pay-amount").textContent = `${Number(s.payment.price_wei) / 1e18} USDC`;
       if(s.status === "failed" && s.error) toast(s.error.message);
     }
     async function startPolling(){
@@ -630,7 +630,7 @@ contract Vault {
         return;
       }
       const provider = state.wallet.provider;
-      const chainIdHex = "0x279f"; // Monad testnet 10143
+      const chainIdHex = "0x4cf0b2"; // Arc testnet 5042002
       try{
         $("pay-btn").disabled = true;
         const from = state.wallet.account || (await provider.request({ method: "eth_requestAccounts" }))[0];
@@ -639,10 +639,10 @@ contract Vault {
         }catch(switchErr){
           if(switchErr && switchErr.code === 4902){
             await provider.request({ method: "wallet_addEthereumChain", params: [{
-              chainId: chainIdHex, chainName: "Monad Testnet",
-              nativeCurrency: { name: "MON", symbol: "MON", decimals: 18 },
-              rpcUrls: ["https://testnet-rpc.monad.xyz"],
-              blockExplorerUrls: ["https://testnet.monadexplorer.com"]
+              chainId: chainIdHex, chainName: "Arc Testnet",
+              nativeCurrency: { name: "USD Coin", symbol: "USDC", decimals: 18 },
+              rpcUrls: ["https://rpc.testnet.arc.network"],
+              blockExplorerUrls: ["https://testnet.arcscan.app"]
             }]});
           } else { throw switchErr; }
         }

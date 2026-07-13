@@ -104,7 +104,7 @@ async fn main() {
         std::time::Duration::from_secs(120),
     );
 
-    // Watch Monad for ScanPaid events (no-op if contract/RPC unset).
+    // Watch Arc for ScanPaid events (no-op if contract/RPC unset).
     infra::payment_watcher::spawn(state.clone());
 
     let router = app::build_router(state);

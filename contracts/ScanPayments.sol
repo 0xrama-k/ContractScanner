@@ -2,13 +2,17 @@
 pragma solidity ^0.8.20;
 
 /// @title ScanPayments
-/// @notice Fixed-price payment gate for ContractScanner on Monad testnet.
-/// @dev Price is immutable (10 MON). There is no fee admin and no `setPrice`;
+/// @notice Fixed-price USDC payment gate for ContractScanner on Circle's Arc
+///         testnet. A scan is unlocked by paying in USDC.
+/// @dev On Arc, USDC is the native EVM asset used for gas and value transfer, so
+///      the fee is collected directly via `msg.value` (no ERC-20 `approve`
+///      round-trip). Native USDC uses 18 decimals, so 10 USDC == 10 * 10**18.
+///      Price is immutable (10 USDC). There is no fee admin and no `setPrice`;
 ///      the only privileged action is `withdraw`. Self-contained (no imports)
-///      for simple single-file deployment/verification. MON is the 18-decimal
-///      native token, so 10 MON == 10 * 10**18 wei.
+///      for simple single-file deployment/verification on Arc.
 contract ScanPayments {
-    /// @notice Required payment per scan, in wei. 10 MON, fixed for the MVP.
+    /// @notice Required payment per scan, in native USDC base units (18 dp).
+    ///         10 USDC, fixed for the MVP.
     uint256 public constant PRICE = 10 * (10 ** 18);
 
     address public owner;
@@ -37,7 +41,9 @@ contract ScanPayments {
         emit OwnershipTransferred(address(0), msg.sender);
     }
 
-    /// @notice Pay for a single scan. Reverts on underpayment or replay.
+    /// @notice Pay for a single scan in USDC. Reverts on underpayment or replay.
+    /// @dev On Arc the attached `msg.value` is USDC (native asset), so no ERC-20
+    ///      transfer is needed — the payment settles atomically with the call.
     /// @param scanId The backend scan id encoded as bytes32.
     function pay(bytes32 scanId) external payable {
         if (msg.value < PRICE) revert Underpaid();

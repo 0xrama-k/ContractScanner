@@ -15,15 +15,16 @@ pub struct Config {
     pub database_url: String,
 
     // --- Payment gate (Section 21) ---
-    /// Required scan price in wei, as a decimal string. Must equal the contract's
-    /// immutable `PRICE` (10 MON). Kept as a string to preserve full 256-bit range.
+    /// Required scan price in native USDC base units (18 dp), as a decimal string.
+    /// Must equal the contract's immutable `PRICE` (10 USDC). Kept as a string to
+    /// preserve full 256-bit range.
     pub scan_price_wei: String,
-    /// EVM chain id (Monad testnet = 10143).
+    /// EVM chain id (Circle Arc testnet = 5042002).
     pub chain_id: i64,
     /// Deployed `ScanPayments` address. Optional while developing under bypass.
     pub payment_contract_address: Option<String>,
-    /// Monad JSON-RPC HTTP endpoint for the payment watcher.
-    pub monad_rpc_http_url: Option<String>,
+    /// Arc JSON-RPC HTTP endpoint for the payment watcher.
+    pub arc_rpc_http_url: Option<String>,
     /// Confirmations to wait before trusting a payment log.
     pub payment_confirmations: u64,
     /// Watcher poll interval, seconds.
@@ -72,11 +73,11 @@ impl Config {
             database_url: require("DATABASE_URL")?,
             scan_price_wei: env::var("SCAN_PRICE_WEI")
                 .unwrap_or_else(|_| "10000000000000000000".to_string()),
-            chain_id: parse_int("CHAIN_ID", 10143)?,
+            chain_id: parse_int("CHAIN_ID", 5042002)?,
             payment_contract_address: env::var("PAYMENT_CONTRACT_ADDRESS")
                 .ok()
                 .filter(|s| !s.is_empty()),
-            monad_rpc_http_url: env::var("MONAD_RPC_HTTP_URL")
+            arc_rpc_http_url: env::var("ARC_RPC_HTTP_URL")
                 .ok()
                 .filter(|s| !s.is_empty()),
             payment_confirmations: parse_int("PAYMENT_CONFIRMATIONS", 2)?.max(0) as u64,

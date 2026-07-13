@@ -1,6 +1,8 @@
-//! Payment watcher (Section 21). Polls the Monad RPC for `ScanPaid` logs, and on
+//! Payment watcher (Section 21). Polls the Arc RPC for `ScanPaid` logs, and on
 //! a confirmed event flips the scan from `awaiting_payment` to `queued` and
 //! starts analysis. Restart-safe via `chain_watcher_state.last_processed_block`.
+//! The USDC payment settles as native value on Arc, so `ScanPaid.amount` is the
+//! attached `msg.value` in 18-decimal USDC.
 //!
 //! Dependency-light: raw JSON-RPC over reqwest + manual log decoding (no eth lib).
 
@@ -16,8 +18,8 @@ use crate::services::scan_service;
 /// keccak256("ScanPaid(bytes32,address,uint256)").
 const SCANPAID_TOPIC: &str =
     "0x639125ad78269da16d3149917eed2cce099067510fdea86de32c6a9b8757bb00";
-/// Cap per getLogs query. Monad RPC limits eth_getLogs to a 100-block range,
-/// so a single query spans at most `from..=from+99` (100 blocks).
+/// Cap per getLogs query at a 100-block range (`from..=from+99`). Conservative
+/// window that stays within common public-RPC `eth_getLogs` limits on Arc.
 const MAX_BLOCK_RANGE: u64 = 99;
 
 pub fn spawn(state: AppState) {
@@ -27,7 +29,7 @@ pub fn spawn(state: AppState) {
 async fn run(state: AppState) {
     let (contract, rpc) = match (
         state.config.payment_contract_address.clone(),
-        state.config.monad_rpc_http_url.clone(),
+        state.config.arc_rpc_http_url.clone(),
     ) {
         (Some(c), Some(r)) => (c, r),
         _ => {
@@ -222,8 +224,8 @@ mod tests {
             "0xabcdef0000000000000000000000000000001234"
         );
 
-        // 10 MON = 10e18 wei
-        let ten_mon = "0x0000000000000000000000000000000000000000000000008ac7230489e80000";
-        assert_eq!(u128_from_hex(ten_mon), 10_000_000_000_000_000_000u128);
+        // 10 USDC = 10e18 native base units (18 dp) on Arc
+        let ten_usdc = "0x0000000000000000000000000000000000000000000000008ac7230489e80000";
+        assert_eq!(u128_from_hex(ten_usdc), 10_000_000_000_000_000_000u128);
     }
 }
